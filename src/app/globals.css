@@ -2,7 +2,25 @@
 
 :root {
   --background: #ffffff;
-  --foreground: #171717;
+  --foreground: #09090b;
+
+  /* FullCalendar v7 Minimalist SaaS Palette Overrides */
+  --fc-classic-primary: #18181b;
+  --fc-classic-primary-foreground: #ffffff;
+  --fc-classic-event: transparent;
+  --fc-classic-event-contrast: #18181b;
+  --fc-classic-highlight: rgba(37, 99, 235, 0.06);
+  --fc-classic-today: rgba(244, 244, 245, 0.55);
+  --fc-classic-now: #2563eb;
+  --fc-classic-background: #ffffff;
+  --fc-classic-faint: #fafafa;
+  --fc-classic-muted: #f4f4f5;
+  --fc-classic-strong: #e4e4e7;
+  --fc-classic-foreground: #09090b;
+  --fc-classic-faint-foreground: #a1a1aa;
+  --fc-classic-muted-foreground: #71717a;
+  --fc-classic-border: #e4e4e7;
+  --fc-classic-strong-border: #d4d4d8;
 }
 
 @theme inline {
@@ -12,15 +30,110 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), -apple-system, BlinkMacSystemFont,
+    "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* =========================================================
+   Minimalist SaaS FullCalendar TimeGrid Overrides
+   ========================================================= */
+.fc {
+  --fc-border-color: #e4e4e7;
+  --fc-today-bg-color: rgba(244, 244, 245, 0.45);
+  --fc-page-bg-color: #ffffff;
+  --fc-neutral-bg-color: #fafafa;
+  --fc-event-bg-color: transparent;
+  --fc-event-border-color: transparent;
+  --fc-now-indicator-color: #2563eb;
+  font-family: inherit;
+}
+
+.fc .fc-scrollgrid {
+  border: none !important;
+}
+
+.fc-theme-standard td,
+.fc-theme-standard th {
+  border-color: #f1f5f9;
+}
+
+.fc .fc-col-header-cell {
+  background-color: #fafafa;
+  border-bottom: 1px solid #e4e4e7 !important;
+  padding: 10px 4px !important;
+  font-weight: 500;
+}
+
+.fc .fc-timegrid-slot {
+  height: 2.75rem !important;
+  border-bottom: 1px solid #f1f5f9 !important;
+}
+
+.fc .fc-timegrid-slot-minor {
+  border-top-style: dashed !important;
+  border-top-color: #f4f4f5 !important;
+}
+
+.fc .fc-timegrid-slot-label {
+  vertical-align: top;
+  padding-top: 4px !important;
+  padding-right: 10px !important;
+  font-size: 11px;
+  font-weight: 500;
+  color: #71717a;
+  border: none !important;
+}
+
+.fc .fc-timegrid-axis-frame {
+  justify-content: flex-end;
+  padding-right: 8px;
+  font-size: 11px;
+  color: #71717a;
+}
+
+.fc .fc-timegrid-event-harness {
+  margin: 1px 3px !important;
+}
+
+.fc .fc-timegrid-event {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  border-radius: 8px !important;
+  overflow: hidden;
+}
+
+.fc .fc-event-main {
+  padding: 0 !important;
+  height: 100%;
+}
+
+.fc .fc-highlight {
+  background: rgba(37, 99, 235, 0.06) !important;
+  border: 1px dashed rgba(37, 99, 235, 0.35);
+  border-radius: 6px;
+}
+
+/* Subtle custom scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #d4d4d8;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #a1a1aa;
 }
