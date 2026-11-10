@@ -10,6 +10,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 
 const updateProfileSchema = z.object({
   full_name: z.string().min(2, "Full name must be at least 2 characters").optional(),
+  email: z.string().email("Valid email address is required").optional(),
   phone: z.string().nullable().optional(),
   bio: z.string().nullable().optional(),
   avatar_url: z.string().nullable().optional(),
@@ -59,13 +60,35 @@ export async function PATCH(request: Request) {
     }
 
     const admin = createAdminClient();
-    const { full_name, avatar_url, phone, bio } = parsed.data;
+    const { full_name, email, avatar_url, phone, bio } = parsed.data;
 
-    if (full_name !== undefined || avatar_url !== undefined) {
+    if (
+      email !== undefined &&
+      email.trim().toLowerCase() !== profile.email?.toLowerCase()
+    ) {
+      const cleanEmail = email.trim().toLowerCase();
+      const { error: authErr } = await admin.auth.admin.updateUserById(
+        profile.id,
+        {
+          email: cleanEmail,
+          email_confirm: true,
+        }
+      );
+      if (authErr) {
+        return NextResponse.json({ error: authErr.message }, { status: 400 });
+      }
+    }
+
+    if (
+      full_name !== undefined ||
+      email !== undefined ||
+      avatar_url !== undefined
+    ) {
       const updates: Record<string, unknown> = {
         updated_at: new Date().toISOString(),
       };
       if (full_name !== undefined) updates.full_name = full_name.trim();
+      if (email !== undefined) updates.email = email.trim().toLowerCase();
       if (avatar_url !== undefined) updates.avatar_url = avatar_url;
 
       const { error: profErr } = await admin

@@ -630,10 +630,9 @@ export default function TeachersPage() {
                   <input
                     type="email"
                     required
-                    disabled={!isAdmin && Boolean(editingTeacher)}
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-xs disabled:bg-zinc-50"
+                    className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-xs"
                   />
                 </div>
 

@@ -162,7 +162,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const adminProfile = await requireAdmin();
+    const actor = await requireAuth();
     const body = await request.json();
     const parsed = createScheduleSchema.safeParse(body);
 
@@ -174,6 +174,13 @@ export async function POST(request: Request) {
     }
 
     const data = parsed.data;
+    // Teachers can only create schedules assigned to themselves
+    if (actor.role !== "admin" && data.teacher_id !== actor.id) {
+      return NextResponse.json(
+        { error: "Teachers can only create schedules for their own lessons." },
+        { status: 403 }
+      );
+    }
     if (data.end_time <= data.start_time) {
       return NextResponse.json(
         { error: "End time must be after start time." },
@@ -289,8 +296,8 @@ export async function POST(request: Request) {
       end_at: buildJakartaTimestamptz(dateStr, data.end_time),
       status: data.status,
       notes: data.notes ?? null,
-      created_by: adminProfile.id,
-      updated_by: adminProfile.id,
+      created_by: actor.id,
+      updated_by: actor.id,
     }));
 
     const { data: insertedRows, error: insertErr } = await admin
@@ -332,7 +339,7 @@ export async function POST(request: Request) {
     });
 
     await logAuditEvent({
-      userId: adminProfile.id,
+      userId: actor.id,
       action:
         normalized.length > 1
           ? "CREATE_RECURRING_SCHEDULE"

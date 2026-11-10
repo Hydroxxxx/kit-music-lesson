@@ -8,6 +8,7 @@ import {
   CheckCircle2,
   Loader2,
   X,
+  Sparkles,
 } from "lucide-react";
 import { useCurrentUser } from "@/components/layout/AppShell";
 import { getCachedApiData, setCachedApiData } from "@/lib/realtime";
@@ -27,6 +28,7 @@ export default function SettingsPage() {
   const [fullName, setFullName] = useState(
     () => cachedSettings?.profile?.full_name || profile.full_name
   );
+  const [email, setEmail] = useState(() => profile.email || "");
   const [phone, setPhone] = useState(() => cachedSettings?.teacher?.phone || "");
   const [bio, setBio] = useState(() => cachedSettings?.teacher?.bio || "");
   const [auditLogs, setAuditLogs] = useState<AuditLogWithUser[]>(
@@ -44,6 +46,7 @@ export default function SettingsPage() {
       setCachedApiData("/api/settings", data);
       if (data.profile) {
         setFullName(data.profile.full_name || "");
+        if (data.profile.email) setEmail(data.profile.email);
       }
       if (data.teacher) {
         setPhone(data.teacher.phone || "");
@@ -68,6 +71,7 @@ export default function SettingsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           full_name: fullName,
+          email: email.trim(),
           phone: phone || null,
           bio: bio || null,
         }),
@@ -132,9 +136,10 @@ export default function SettingsPage() {
               </label>
               <input
                 type="email"
-                disabled
-                value={profile.email || ""}
-                className="w-full rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-500"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-xs text-zinc-900"
               />
             </div>
 
@@ -186,6 +191,68 @@ export default function SettingsPage() {
             </button>
           </div>
         </form>
+      </div>
+
+      {/* Version 1.1 & Patch Notes Card */}
+      <div className="bg-white rounded-xl border border-zinc-200/80 overflow-hidden">
+        <div className="px-5 py-4 border-b border-zinc-100 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Sparkles className="h-4 w-4 text-amber-500" />
+            <div>
+              <h2 className="text-sm font-semibold text-zinc-900">
+                System Version & Patch Release Notes
+              </h2>
+              <p className="text-xs text-zinc-500">
+                KitMusicLesson Scheduling System — Update Patch 1.1
+              </p>
+            </div>
+          </div>
+          <span className="inline-flex items-center rounded-md bg-zinc-900 px-2.5 py-1 font-mono text-xs font-bold text-white">
+            Version 1.1
+          </span>
+        </div>
+
+        <div className="p-5 grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+          <div className="rounded-xl border border-zinc-200/80 bg-zinc-50/60 p-3.5 space-y-1">
+            <div className="flex items-center gap-1.5 font-semibold text-zinc-900">
+              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+              <span>1. Teacher Schedule, Student & Email Access</span>
+            </div>
+            <p className="text-zinc-600 pl-5 leading-relaxed">
+              Teachers can create their own lesson schedules, edit/cancel their own lessons, manage students they teach, and update their own email address (Admins can also update any account email).
+            </p>
+          </div>
+
+          <div className="rounded-xl border border-zinc-200/80 bg-zinc-50/60 p-3.5 space-y-1">
+            <div className="flex items-center gap-1.5 font-semibold text-zinc-900">
+              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+              <span>2. Student Report View & Absence Reason Notes</span>
+            </div>
+            <p className="text-zinc-600 pl-5 leading-relaxed">
+              Removed the Attendance Record column from the Students table (accessible via the Student Report button) and added Attendance Notes / Reasons for Absence (e.g., <em>Sakit</em>, <em>Izin</em>).
+            </p>
+          </div>
+
+          <div className="rounded-xl border border-zinc-200/80 bg-zinc-50/60 p-3.5 space-y-1">
+            <div className="flex items-center gap-1.5 font-semibold text-zinc-900">
+              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+              <span>3. Streamlined Account Management Table</span>
+            </div>
+            <p className="text-zinc-600 pl-5 leading-relaxed">
+              Removed the <em>Last Sign-In</em> column from the Account Management table for a cleaner layout.
+            </p>
+          </div>
+
+          <div className="rounded-xl border border-zinc-200/80 bg-zinc-50/60 p-3.5 space-y-1">
+            <div className="flex items-center gap-1.5 font-semibold text-zinc-900">
+              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+              <span>4. Calendar Schedule Card Attributes</span>
+            </div>
+            <p className="text-zinc-600 pl-5 leading-relaxed">
+              Weekly Calendar schedule blocks now display <strong>Instrument - Teacher Name - Practice Room</strong>.
+            </p>
+          </div>
+        </div>
       </div>
 
       {/* Admin Activity & Audit Logs */}

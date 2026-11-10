@@ -62,12 +62,12 @@ export async function PATCH(
     const data = parsed.data;
     const admin = createAdminClient();
 
-    // Update profile fields
+    // Update profile fields & Auth email if changed (Admin or Teacher self)
     const validColorKey =
       data.color !== undefined ? extractTeacherColorKey(data.color) : null;
     if (
       data.full_name !== undefined ||
-      (isAdmin && data.email !== undefined) ||
+      data.email !== undefined ||
       validColorKey
     ) {
       const profileUpdate: Record<string, unknown> = {
@@ -76,8 +76,22 @@ export async function PATCH(
       if (data.full_name !== undefined) {
         profileUpdate.full_name = data.full_name.trim();
       }
-      if (isAdmin && data.email !== undefined) {
-        profileUpdate.email = data.email.trim().toLowerCase();
+      if (data.email !== undefined) {
+        const cleanEmail = data.email.trim().toLowerCase();
+        profileUpdate.email = cleanEmail;
+        const { error: authEmailErr } = await admin.auth.admin.updateUserById(
+          id,
+          {
+            email: cleanEmail,
+            email_confirm: true,
+          }
+        );
+        if (authEmailErr) {
+          return NextResponse.json(
+            { error: authEmailErr.message },
+            { status: 400 }
+          );
+        }
       }
       if (validColorKey) {
         profileUpdate.avatar_url = encodeTeacherColorAvatar(validColorKey);

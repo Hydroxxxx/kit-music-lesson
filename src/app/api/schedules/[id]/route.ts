@@ -44,6 +44,7 @@ const updateScheduleSchema = z.object({
   end_at: z.string().optional(),
   status: z.enum(["pending", "confirmed", "cancelled"]).optional(),
   attendance_status: z.enum(["present", "absent"]).nullable().optional(),
+  attendance_note: z.string().nullable().optional(),
   notes: z.string().nullable().optional(),
   detach_from_series: z.boolean().optional(),
 });
@@ -81,11 +82,30 @@ export async function PATCH(
 
     const input = parsed.data;
     const isAdmin = actor.role === "admin";
-    const isAssignedTeacher = existing.teacher_id === actor.id;
+    const isOwnSchedule =
+      existing.teacher_id === actor.id || existing.created_by === actor.id;
 
-    // Non-admin teachers can only mark attendance on their own assigned lessons
+    if (!isAdmin && !isOwnSchedule) {
+      return NextResponse.json(
+        {
+          error:
+            "Forbidden. You can only edit or mark attendance for your own lessons.",
+        },
+        { status: 403 }
+      );
+    }
+
+    // Teachers cannot reassign their schedule to another teacher
+    if (!isAdmin && input.teacher_id && input.teacher_id !== actor.id) {
+      return NextResponse.json(
+        { error: "Teachers cannot reassign a schedule to another teacher." },
+        { status: 403 }
+      );
+    }
+
     const isOnlyAttendanceUpdate =
-      input.attendance_status !== undefined &&
+      (input.attendance_status !== undefined ||
+        input.attendance_note !== undefined) &&
       input.teacher_id === undefined &&
       input.student_id === undefined &&
       input.instrument_id === undefined &&
@@ -95,20 +115,20 @@ export async function PATCH(
       input.end_time === undefined &&
       input.start_at === undefined &&
       input.end_at === undefined &&
-      input.status === undefined;
-
-    if (!isAdmin && (!isAssignedTeacher || !isOnlyAttendanceUpdate)) {
-      return NextResponse.json(
-        { error: "Forbidden. Only administrators or the assigned teacher can mark attendance." },
-        { status: 403 }
-      );
-    }
+      input.status === undefined &&
+      input.notes === undefined;
 
     const existingParsedNotes = parseScheduleAttendanceAndNotes(existing.notes);
     const nextAttendanceStatus =
       input.attendance_status !== undefined
         ? input.attendance_status
         : existingParsedNotes.attendance_status;
+    const nextAttendanceNote =
+      input.attendance_note !== undefined
+        ? input.attendance_note
+        : nextAttendanceStatus === null
+        ? null
+        : existingParsedNotes.attendance_note;
     const nextCleanNotes =
       input.notes !== undefined ? input.notes : existingParsedNotes.notes;
     const nextMarkedAt =
@@ -118,12 +138,13 @@ export async function PATCH(
           : null
         : existingParsedNotes.attendance_marked_at;
 
-    // Fast path for marking attendance (Present / Absent)
+    // Fast path for marking attendance (Present / Absent + Note)
     if (isOnlyAttendanceUpdate) {
       const encodedNotes = encodeScheduleAttendanceAndNotes(
         nextAttendanceStatus,
         nextCleanNotes,
-        nextMarkedAt
+        nextMarkedAt,
+        nextAttendanceNote
       );
 
       const { data: updatedRow, error: updateErr } = await admin
@@ -153,9 +174,13 @@ export async function PATCH(
         action: "MARK_ATTENDANCE",
         tableName: "schedules",
         recordId: id,
-        oldData: { attendance_status: existingParsedNotes.attendance_status },
+        oldData: {
+          attendance_status: existingParsedNotes.attendance_status,
+          attendance_note: existingParsedNotes.attendance_note,
+        },
         newData: {
           attendance_status: nextAttendanceStatus,
+          attendance_note: nextAttendanceNote,
           student_id: existing.student_id,
           start_at: existing.start_at,
         },
@@ -234,11 +259,16 @@ export async function PATCH(
       updated_at: new Date().toISOString(),
     };
 
-    if (input.notes !== undefined || input.attendance_status !== undefined) {
+    if (
+      input.notes !== undefined ||
+      input.attendance_status !== undefined ||
+      input.attendance_note !== undefined
+    ) {
       updatePayload.notes = encodeScheduleAttendanceAndNotes(
         nextAttendanceStatus,
         nextCleanNotes,
-        nextMarkedAt
+        nextMarkedAt,
+        nextAttendanceNote
       );
     }
     if (input.detach_from_series) {
@@ -317,7 +347,7 @@ export async function DELETE(
   context: { params: Promise<{ id: string }> }
 ) {
   try {
-    const adminProfile = await requireAdmin();
+    const actor = await requireAuth();
     const { id } = await context.params;
     const admin = createAdminClient();
 
@@ -334,12 +364,23 @@ export async function DELETE(
       );
     }
 
+    if (
+      actor.role !== "admin" &&
+      existing.teacher_id !== actor.id &&
+      existing.created_by !== actor.id
+    ) {
+      return NextResponse.json(
+        { error: "Forbidden. You can only cancel your own lessons." },
+        { status: 403 }
+      );
+    }
+
     // Soft-cancel or delete if no requests reference it
     const { error: delErr } = await admin
       .from("schedules")
       .update({
         status: "cancelled",
-        updated_by: adminProfile.id,
+        updated_by: actor.id,
         updated_at: new Date().toISOString(),
       })
       .eq("id", id);
@@ -356,11 +397,11 @@ export async function DELETE(
       )} (${formatJakartaTimeRange(
         existing.start_at,
         existing.end_at
-      )}) was cancelled by an administrator.`,
+      )}) was cancelled.`,
     });
 
     await logAuditEvent({
-      userId: adminProfile.id,
+      userId: actor.id,
       action: "CANCEL_SCHEDULE",
       tableName: "schedules",
       recordId: id,

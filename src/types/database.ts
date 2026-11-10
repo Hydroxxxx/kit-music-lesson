@@ -70,6 +70,7 @@ export interface Schedule {
   status: ScheduleStatus;
   attendance_status?: AttendanceStatus;
   attendance_marked_at?: string | null;
+  attendance_note?: string | null;
   notes: string | null;
   created_by: string | null;
   updated_by: string | null;

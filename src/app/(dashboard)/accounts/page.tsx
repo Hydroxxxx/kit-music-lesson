@@ -23,7 +23,7 @@ import {
   setCachedApiData,
   useRealtimeSubscription,
 } from "@/lib/realtime";
-import { formatJakartaDate, toJakartaTimeString } from "@/lib/timezone";
+import { formatJakartaDate } from "@/lib/timezone";
 import type { UserRole } from "@/types/database";
 
 interface AccountRecord {
@@ -69,6 +69,7 @@ export default function AccountsManagementPage() {
   // Edit / Reset Password Modal
   const [editTarget, setEditTarget] = useState<AccountRecord | null>(null);
   const [editFullName, setEditFullName] = useState("");
+  const [editEmail, setEditEmail] = useState("");
   const [editRole, setEditRole] = useState<UserRole>("teacher");
   const [editNewPassword, setEditNewPassword] = useState("");
   const [editError, setEditError] = useState<string | null>(null);
@@ -178,6 +179,7 @@ export default function AccountsManagementPage() {
   const openEditModal = (acc: AccountRecord) => {
     setEditTarget(acc);
     setEditFullName(acc.full_name);
+    setEditEmail(acc.email);
     setEditRole(acc.role);
     setEditNewPassword("");
     setEditError(null);
@@ -192,6 +194,7 @@ export default function AccountsManagementPage() {
     try {
       const payload: Record<string, unknown> = {
         full_name: editFullName.trim(),
+        email: editEmail.trim().toLowerCase(),
         role: editRole,
       };
       if (editNewPassword.trim()) {
@@ -398,7 +401,6 @@ export default function AccountsManagementPage() {
                   <th className="py-3 px-4">Username (Gmail / Email)</th>
                   <th className="py-3 px-4">Role</th>
                   <th className="py-3 px-4">Registered</th>
-                  <th className="py-3 px-4">Last Sign-In</th>
                   <th className="py-3 px-4">Status</th>
                   <th className="py-3 px-4 text-right">Admin Actions</th>
                 </tr>
@@ -462,17 +464,6 @@ export default function AccountsManagementPage() {
 
                       <td className="py-3.5 px-4 text-zinc-600 whitespace-nowrap">
                         {formatJakartaDate(acc.created_at)}
-                      </td>
-
-                      <td className="py-3.5 px-4 text-zinc-600 whitespace-nowrap">
-                        {acc.last_sign_in_at ? (
-                          <span>
-                            {formatJakartaDate(acc.last_sign_in_at)} ·{" "}
-                            {toJakartaTimeString(acc.last_sign_in_at)} WIB
-                          </span>
-                        ) : (
-                          <span className="text-zinc-400">Never</span>
-                        )}
                       </td>
 
                       <td className="py-3.5 px-4">
@@ -693,6 +684,23 @@ export default function AccountsManagementPage() {
                   value={editFullName}
                   onChange={(e) => setEditFullName(e.target.value)}
                   className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-xs"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-zinc-700 mb-1">
+                  Email Address (Username)
+                </label>
+                <input
+                  type="email"
+                  required
+                  disabled={
+                    Boolean(editTarget.is_super_admin) &&
+                    editTarget.id !== profile.id
+                  }
+                  value={editEmail}
+                  onChange={(e) => setEditEmail(e.target.value)}
+                  className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-xs disabled:bg-zinc-50"
                 />
               </div>
 

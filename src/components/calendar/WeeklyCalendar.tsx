@@ -1,20 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import FullCalendar, {
-  type CalendarRef,
-  type DateClickInfo,
-  type EventClickInfo,
-  type EventDisplayInfo,
-  type EventInput,
-} from "@fullcalendar/react";
-import timeGridPlugin from "@fullcalendar/react/timegrid";
-import dayGridPlugin from "@fullcalendar/react/daygrid";
-import interactionPlugin from "@fullcalendar/react/interaction";
-import classicTheme from "@fullcalendar/react/themes/classic";
-import "@fullcalendar/react/skeleton.css";
-import "@fullcalendar/react/themes/classic/theme.css";
-import "@fullcalendar/react/themes/classic/palette.css";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ChevronLeft,
   ChevronRight,
@@ -81,7 +67,6 @@ const DAY_SHORT_LABELS: Record<number, string> = {
 
 export function WeeklyCalendar() {
   const { profile, refreshNotifications } = useCurrentUser();
-  const calendarRef = useRef<CalendarRef | null>(null);
   const isAdmin = profile.role === "admin";
 
   // Current anchor date (YYYY-MM-DD in Asia/Jakarta)
@@ -171,6 +156,7 @@ export function WeeklyCalendar() {
   const [confirmCancelOpen, setConfirmCancelOpen] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [markingAttendance, setMarkingAttendance] = useState(false);
+  const [attendanceNoteDraft, setAttendanceNoteDraft] = useState("");
 
   // Toast feedback
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -185,15 +171,7 @@ export function WeeklyCalendar() {
   // Responsive viewport detection
   useEffect(() => {
     const checkViewport = () => {
-      const mobile = window.innerWidth < 768;
-      setIsMobile(mobile);
-      const api = calendarRef.current?.getApi();
-      if (api) {
-        const targetView = mobile ? "timeGridDay" : "timeGridWeek";
-        if (api.view.type !== targetView) {
-          api.changeView(targetView);
-        }
-      }
+      setIsMobile(window.innerWidth < 768);
     };
     checkViewport();
     window.addEventListener("resize", checkViewport);
@@ -284,28 +262,61 @@ export function WeeklyCalendar() {
     roomFilter,
   ]);
 
-  // Convert schedules to FullCalendar events
-  const calendarEvents: EventInput[] = useMemo(() => {
-    return filteredSchedules.map((s) => ({
-      id: s.id,
-      title: `${s.instrument?.name || "Lesson"} — ${
-        s.teacher?.profile?.full_name || "Teacher"
-      }`,
-      start: s.start_at,
-      end: s.end_at,
-      extendedProps: {
-        schedule: s,
-      },
-    }));
+  // Visible columns (Mon-Sun on desktop, selected day on mobile)
+  const visibleDays = useMemo(() => {
+    if (!isMobile) return weekBounds.weekDays;
+    const found = weekBounds.weekDays.find((d) => d.dateStr === anchorDate);
+    return found ? [found] : [weekBounds.weekDays[0]];
+  }, [isMobile, weekBounds.weekDays, anchorDate]);
+
+  // Grid row slots (every 30 minutes within operating hours)
+  const gridTimeRows = useMemo(
+    () => timeSlotOptions.slice(0, -1),
+    [timeSlotOptions]
+  );
+
+  // Group filtered schedules by Date (YYYY-MM-DD) -> 30-min Slot (HH:mm)
+  // Multiple schedules in the same time slot are stacked vertically (full column width)
+  const schedulesByDayAndSlot = useMemo(() => {
+    const map: Record<string, Record<string, ScheduleWithDetails[]>> = {};
+
+    for (const s of filteredSchedules) {
+      const dateStr = toJakartaDateString(s.start_at);
+      const startTime = toJakartaTimeString(s.start_at);
+      const [hStr, mStr] = startTime.split(":");
+      const slotMinute = Number(mStr) >= 30 ? "30" : "00";
+      const slotKey = `${hStr}:${slotMinute}`;
+
+      if (!map[dateStr]) {
+        map[dateStr] = {};
+      }
+      if (!map[dateStr][slotKey]) {
+        map[dateStr][slotKey] = [];
+      }
+      map[dateStr][slotKey].push(s);
+    }
+
+    // Sort schedules within each slot chronologically then by instrument name
+    for (const dateStr of Object.keys(map)) {
+      for (const slotKey of Object.keys(map[dateStr])) {
+        map[dateStr][slotKey].sort((a, b) => {
+          const cmpStart = a.start_at.localeCompare(b.start_at);
+          if (cmpStart !== 0) return cmpStart;
+          const cmpEnd = a.end_at.localeCompare(b.end_at);
+          if (cmpEnd !== 0) return cmpEnd;
+          return (a.instrument?.name || "").localeCompare(
+            b.instrument?.name || ""
+          );
+        });
+      }
+    }
+
+    return map;
   }, [filteredSchedules]);
 
   // Navigation handlers
   const syncCalendarDate = (newDateStr: string) => {
     setAnchorDate(newDateStr);
-    const api = calendarRef.current?.getApi();
-    if (api) {
-      api.gotoDate(`${newDateStr}T12:00:00+07:00`);
-    }
   };
 
   const handlePrev = () => {
@@ -332,10 +343,11 @@ export function WeeklyCalendar() {
     return teacher.instruments.filter((i) => i.is_active);
   }, [formTeacherId, teachers, instruments]);
 
-  // Open Create Schedule Modal
+  // Open Create Schedule Modal (Admin or Teacher)
   const openCreateModal = (prefillDate?: string, prefillStart?: string) => {
-    const defaultTeacher =
-      teachers.find((t) => t.is_active) || teachers[0] || null;
+    const defaultTeacher = !isAdmin
+      ? teachers.find((t) => t.id === profile.id) || null
+      : teachers.find((t) => t.is_active) || teachers[0] || null;
     const defaultInst =
       defaultTeacher?.instruments?.[0] ||
       instruments.find((i) => i.is_active) ||
@@ -355,7 +367,7 @@ export function WeeklyCalendar() {
         : `${String(h).padStart(2, "0")}:30`;
 
     setEditingSchedule(null);
-    setFormTeacherId(defaultTeacher?.id || "");
+    setFormTeacherId(defaultTeacher?.id || (!isAdmin ? profile.id : ""));
     setFormInstrumentId(defaultInst?.id || "");
     setFormStudentId(defaultStudent?.id || "");
     setFormRoomId(defaultRoom?.id || "");
@@ -388,25 +400,14 @@ export function WeeklyCalendar() {
     setScheduleModalOpen(true);
   };
 
-  // Handle clicking an empty slot on the calendar
-  const handleDateClick = (arg: DateClickInfo) => {
-    const clickedDate = toJakartaDateString(arg.date);
-    const clickedTime = toJakartaTimeString(arg.date);
-    if (isAdmin) {
-      openCreateModal(clickedDate, clickedTime);
-    } else {
-      showToast(
-        `Slot ${formatJakartaDate(arg.date)} at ${clickedTime} WIB is available. Click one of your lessons to request a schedule change.`
-      );
-    }
-  };
-
   // Handle clicking an event card
-  const handleEventClick = (arg: EventClickInfo) => {
-    const sched = arg.event.extendedProps.schedule as ScheduleWithDetails;
-    if (sched) {
-      setSelectedScheduleId(sched.id);
-    }
+  const handleSelectScheduleCard = (
+    e: React.MouseEvent,
+    sched: ScheduleWithDetails
+  ) => {
+    e.stopPropagation();
+    setSelectedScheduleId(sched.id);
+    setAttendanceNoteDraft(sched.attendance_note || "");
   };
 
   // Submit Create or Edit Schedule Form
@@ -511,21 +512,34 @@ export function WeeklyCalendar() {
     }
   };
 
-  // Mark Student Attendance (Present / Absent) on a Schedule
+  // Mark Student Attendance (Present / Absent + Note) on a Schedule
   const handleMarkAttendance = async (
     sched: ScheduleWithDetails,
-    clickedStatus: "present" | "absent"
+    clickedStatus: "present" | "absent",
+    noteOverride?: string
   ) => {
     if (markingAttendance) return;
     const nextAttendance: AttendanceStatus =
-      sched.attendance_status === clickedStatus ? null : clickedStatus;
+      noteOverride !== undefined
+        ? clickedStatus
+        : sched.attendance_status === clickedStatus
+        ? null
+        : clickedStatus;
+    const noteToSave =
+      nextAttendance === null
+        ? null
+        : (noteOverride ?? attendanceNoteDraft).trim() || null;
 
     setMarkingAttendance(true);
     // Optimistically update local state for instant visual feedback
     setSchedules((prev) =>
       prev.map((item) =>
         item.id === sched.id
-          ? { ...item, attendance_status: nextAttendance }
+          ? {
+              ...item,
+              attendance_status: nextAttendance,
+              attendance_note: noteToSave,
+            }
           : item
       )
     );
@@ -534,7 +548,10 @@ export function WeeklyCalendar() {
       const res = await fetch(`/api/schedules/${sched.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ attendance_status: nextAttendance }),
+        body: JSON.stringify({
+          attendance_status: nextAttendance,
+          attendance_note: noteToSave,
+        }),
       });
       const json = await res.json();
       if (!res.ok) {
@@ -553,9 +570,11 @@ export function WeeklyCalendar() {
 
       showToast(
         nextAttendance === "present"
-          ? `Marked ${sched.student?.full_name || "student"} as Present (recorded in student report).`
+          ? `Marked ${sched.student?.full_name || "student"} as Present.`
           : nextAttendance === "absent"
-          ? `Marked ${sched.student?.full_name || "student"} as Absent (recorded in student report).`
+          ? `Marked ${sched.student?.full_name || "student"} as Absent${
+              noteToSave ? ` (${noteToSave})` : ""
+            }.`
           : "Attendance status cleared."
       );
       await broadcastRealtimeSync("schedule_changed");
@@ -642,34 +661,44 @@ export function WeeklyCalendar() {
     }
   };
 
-  // Custom Minimalist Pastel Event Card Renderer
-  // Strictly displays ONLY Instrument Name + Teacher Name + subtle status indicator
-  const renderEventContent = (eventInfo: EventDisplayInfo) => {
-    const sched = eventInfo.event.extendedProps
-      .schedule as ScheduleWithDetails | undefined;
-    if (!sched) return null;
-
+  // Custom Minimalist Pastel Schedule Card Renderer (Full-Width Vertical Stack)
+  // Displays: Instrument - Teacher Name - Room Name + time range & attendance indicator
+  const renderScheduleCard = (sched: ScheduleWithDetails) => {
     const instrumentName = sched.instrument?.name || "Music";
     const teacherName = sched.teacher?.profile?.full_name || "Teacher";
+    const roomName = sched.room?.name || "Room";
+    const timeRange = `${toJakartaTimeString(sched.start_at)}–${toJakartaTimeString(
+      sched.end_at
+    )}`;
     const status = sched.status;
     const isOwnSchedule = sched.teacher_id === profile.id;
 
     if (status === "cancelled") {
       return (
-        <div className="h-full w-full rounded-lg border border-zinc-200 bg-zinc-100/90 px-2 py-1.5 flex flex-col justify-between text-zinc-400 line-through cursor-pointer select-none overflow-hidden">
+        <div
+          key={sched.id}
+          onClick={(e) => handleSelectScheduleCard(e, sched)}
+          className="w-full rounded-lg border border-zinc-200 bg-zinc-100/90 px-2.5 py-1.5 flex flex-col justify-between text-zinc-400 line-through cursor-pointer select-none overflow-hidden"
+          title={`${instrumentName} - ${teacherName} - ${roomName} (${timeRange})`}
+        >
           <div className="min-w-0">
-            <div className="flex items-center justify-between gap-1">
-              <span className="text-[11px] font-semibold tracking-tight truncate leading-tight">
-                {instrumentName}
+            <div className="flex items-center justify-between gap-1.5">
+              <span className="text-[11px] font-semibold tracking-tight truncate leading-snug">
+                {instrumentName} - {teacherName}
               </span>
               <span
                 className="h-1.5 w-1.5 rounded-full shrink-0 bg-zinc-400"
                 title="Status: cancelled"
               />
             </div>
-            <p className="text-[11px] truncate leading-tight mt-0.5 text-zinc-400">
-              {teacherName}
-            </p>
+            <div className="flex items-center justify-between gap-1 mt-0.5">
+              <p className="text-[10px] truncate leading-tight text-zinc-400">
+                {roomName}
+              </p>
+              <span className="text-[9.5px] font-mono text-zinc-400 shrink-0">
+                {timeRange}
+              </span>
+            </div>
           </div>
         </div>
       );
@@ -682,6 +711,8 @@ export function WeeklyCalendar() {
 
     return (
       <div
+        key={sched.id}
+        onClick={(e) => handleSelectScheduleCard(e, sched)}
         style={{
           backgroundColor: theme.bg,
           borderColor: theme.border,
@@ -690,14 +721,15 @@ export function WeeklyCalendar() {
           borderStyle: status === "pending" ? "dashed" : "solid",
           color: theme.text,
         }}
-        className={`h-full w-full rounded-lg border px-2 py-1.5 flex flex-col justify-between transition-opacity hover:opacity-90 cursor-pointer select-none overflow-hidden ${
+        className={`w-full rounded-lg border px-2.5 py-1.5 flex flex-col justify-between transition-all hover:opacity-90 cursor-pointer select-none overflow-hidden ${
           isOwnSchedule ? "ring-1 ring-zinc-900/20 shadow-2xs" : ""
         }`}
+        title={`${instrumentName} - ${teacherName} - ${roomName} (${timeRange})`}
       >
         <div className="min-w-0">
-          <div className="flex items-center justify-between gap-1">
-            <span className="text-[11px] font-semibold tracking-tight truncate leading-tight">
-              {instrumentName}
+          <div className="flex items-center justify-between gap-1.5">
+            <span className="text-[11px] font-semibold tracking-tight truncate leading-snug">
+              {instrumentName} - {teacherName}
             </span>
             {sched.attendance_status === "present" ? (
               <span
@@ -709,7 +741,9 @@ export function WeeklyCalendar() {
             ) : sched.attendance_status === "absent" ? (
               <span
                 className="inline-flex items-center justify-center h-3.5 px-1 rounded bg-red-600 text-white text-[9px] font-bold shrink-0"
-                title="Attendance: Absent"
+                title={`Attendance: Absent${
+                  sched.attendance_note ? ` (${sched.attendance_note})` : ""
+                }`}
               >
                 ✕
               </span>
@@ -724,12 +758,20 @@ export function WeeklyCalendar() {
               />
             )}
           </div>
-          <p
-            style={{ color: theme.subtext }}
-            className="text-[11px] font-medium truncate leading-tight mt-0.5"
-          >
-            {teacherName}
-          </p>
+          <div className="flex items-center justify-between gap-1 mt-0.5">
+            <p
+              style={{ color: theme.subtext }}
+              className="text-[10px] font-medium truncate leading-tight"
+            >
+              {roomName}
+            </p>
+            <span
+              style={{ color: theme.subtext }}
+              className="text-[9.5px] font-mono opacity-80 shrink-0"
+            >
+              {timeRange}
+            </span>
+          </div>
         </div>
       </div>
     );
@@ -904,16 +946,14 @@ export function WeeklyCalendar() {
               )}
             </div>
 
-            {isAdmin && (
-              <button
-                type="button"
-                onClick={() => openCreateModal()}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-zinc-900 px-3.5 py-1.5 text-xs font-medium text-white hover:bg-zinc-800 transition-colors cursor-pointer"
-              >
-                <Plus className="h-3.5 w-3.5" />
-                New Schedule
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={() => openCreateModal()}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-zinc-900 px-3.5 py-1.5 text-xs font-medium text-white hover:bg-zinc-800 transition-colors cursor-pointer"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              New Schedule
+            </button>
           </div>
         </div>
 
@@ -1077,76 +1117,88 @@ export function WeeklyCalendar() {
         </div>
       </div>
 
-      {/* Main Weekly TimeGrid Calendar Surface */}
+      {/* Main Weekly Stacked TimeGrid Calendar Surface */}
       <div className="bg-white rounded-xl border border-zinc-200/80 overflow-hidden shadow-2xs">
-        <FullCalendar
-          ref={calendarRef}
-          plugins={[
-            classicTheme,
-            timeGridPlugin,
-            dayGridPlugin,
-            interactionPlugin,
-          ]}
-          initialView={isMobile ? "timeGridDay" : "timeGridWeek"}
-          initialDate={`${anchorDate}T12:00:00+07:00`}
-          firstDay={1} // Monday first column (Monday -> Sunday)
-          headerToolbar={false}
-          allDaySlot={false}
-          slotDuration="00:30:00"
-          slotHeaderInterval="00:30:00"
-          slotMinHeight={44}
-          slotMinTime={`${String(startHour).padStart(2, "0")}:00:00`}
-          slotMaxTime={`${String(endHour).padStart(2, "0")}:00:00`}
-          slotHeaderFormat={{
-            hour: "2-digit",
-            minute: "2-digit",
-            hour12: false,
-          }}
-          eventColor="transparent"
-          eventContrastColor="#18181b"
-          blockEventInnerClass="p-0 h-full w-full"
-          columnEventClass="border-0 bg-transparent shadow-none p-0"
-          dayHeaderContent={(args) => {
-            const dStr = toJakartaDateString(args.date);
-            const todayStr = toJakartaDateString(new Date());
-            const isToday = dStr === todayStr;
-            const weekdayName = new Intl.DateTimeFormat("en-US", {
-              timeZone: "Asia/Jakarta",
-              weekday: "short",
-            }).format(args.date);
-            const dayNum = new Intl.DateTimeFormat("en-US", {
-              timeZone: "Asia/Jakarta",
-              day: "numeric",
-            }).format(args.date);
+        <div className="overflow-x-auto">
+          <table className="w-full table-fixed border-collapse">
+            <thead>
+              <tr className="bg-zinc-50/90 border-b border-zinc-200">
+                <th className="w-16 py-2.5 px-2 text-right text-[10px] font-semibold uppercase tracking-wider text-zinc-400 border-r border-zinc-100 select-none">
+                  WIB
+                </th>
+                {visibleDays.map((wd) => (
+                  <th
+                    key={wd.dateStr}
+                    className={`py-2.5 px-2 border-r last:border-r-0 border-zinc-100 ${
+                      wd.isToday ? "bg-zinc-100/60" : ""
+                    }`}
+                  >
+                    <div className="flex items-center justify-center gap-1.5 py-0.5">
+                      <span className="text-xs font-medium text-zinc-500 uppercase tracking-wider">
+                        {wd.shortDay}
+                      </span>
+                      <span
+                        className={`inline-flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold ${
+                          wd.isToday
+                            ? "bg-blue-600 text-white"
+                            : "text-zinc-900"
+                        }`}
+                      >
+                        {wd.dayNumber}
+                      </span>
+                    </div>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {gridTimeRows.map((slotTime) => {
+                const isHalfHour = slotTime.endsWith(":30");
+                return (
+                  <tr
+                    key={slotTime}
+                    className={
+                      isHalfHour
+                        ? "border-t border-dashed border-zinc-100"
+                        : "border-t border-zinc-200/70"
+                    }
+                  >
+                    {/* Left Time Label Column */}
+                    <td className="w-16 align-top text-right pr-2.5 pt-1.5 pb-2 text-[11px] font-medium text-zinc-500 border-r border-zinc-100 select-none">
+                      {slotTime}
+                    </td>
 
-            return (
-              <div className="flex items-center justify-center gap-1.5 py-0.5">
-                <span className="text-xs font-medium text-zinc-500 uppercase tracking-wider">
-                  {weekdayName}
-                </span>
-                <span
-                  className={`inline-flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold ${
-                    isToday
-                      ? "bg-blue-600 text-white"
-                      : "text-zinc-900"
-                  }`}
-                >
-                  {dayNum}
-                </span>
-              </div>
-            );
-          }}
-          events={calendarEvents}
-          eventContent={renderEventContent}
-          eventClick={handleEventClick}
-          dateClick={handleDateClick}
-          nowIndicator={true}
-          height="auto"
-          expandRows={true}
-          tableHeaderSticky={true}
-          eventOverlap={true}
-          slotEventOverlap={false}
-        />
+                    {/* Day Columns (Stacked Vertically) */}
+                    {visibleDays.map((wd) => {
+                      const slotSchedules =
+                        schedulesByDayAndSlot[wd.dateStr]?.[slotTime] || [];
+
+                      return (
+                        <td
+                          key={`${wd.dateStr}-${slotTime}`}
+                          onClick={() => openCreateModal(wd.dateStr, slotTime)}
+                          className={`align-top p-1 min-h-[44px] h-11 border-r last:border-r-0 border-zinc-100 transition-colors cursor-pointer ${
+                            wd.isToday
+                              ? "bg-zinc-50/50 hover:bg-blue-50/30"
+                              : "hover:bg-zinc-50/70"
+                          }`}
+                        >
+                          {slotSchedules.length > 0 && (
+                            <div className="flex flex-col gap-1.5 w-full">
+                              {slotSchedules.map((sched) =>
+                                renderScheduleCard(sched)
+                              )}
+                            </div>
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {/* =========================================================
@@ -1345,44 +1397,93 @@ export function WeeklyCalendar() {
                   </div>
 
                   {isAdmin || selectedSchedule.teacher_id === profile.id ? (
-                    <div className="grid grid-cols-2 gap-2">
-                      <button
-                        type="button"
-                        disabled={markingAttendance}
-                        onClick={() =>
-                          handleMarkAttendance(selectedSchedule, "present")
-                        }
-                        className={`inline-flex items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold transition-all cursor-pointer disabled:opacity-50 ${
-                          selectedSchedule.attendance_status === "present"
-                            ? "bg-emerald-600 text-white shadow-xs ring-2 ring-emerald-600/20"
-                            : "border border-emerald-200 bg-emerald-50/50 text-emerald-700 hover:bg-emerald-100/70"
-                        }`}
-                      >
-                        <CheckCircle2 className="h-4 w-4" />
-                        Present (Hadir)
-                      </button>
+                    <div className="space-y-2.5">
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          disabled={markingAttendance}
+                          onClick={() =>
+                            handleMarkAttendance(selectedSchedule, "present")
+                          }
+                          className={`inline-flex items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold transition-all cursor-pointer disabled:opacity-50 ${
+                            selectedSchedule.attendance_status === "present"
+                              ? "bg-emerald-600 text-white shadow-xs ring-2 ring-emerald-600/20"
+                              : "border border-emerald-200 bg-emerald-50/50 text-emerald-700 hover:bg-emerald-100/70"
+                          }`}
+                        >
+                          <CheckCircle2 className="h-4 w-4" />
+                          Present (Hadir)
+                        </button>
 
-                      <button
-                        type="button"
-                        disabled={markingAttendance}
-                        onClick={() =>
-                          handleMarkAttendance(selectedSchedule, "absent")
-                        }
-                        className={`inline-flex items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold transition-all cursor-pointer disabled:opacity-50 ${
-                          selectedSchedule.attendance_status === "absent"
-                            ? "bg-red-600 text-white shadow-xs ring-2 ring-red-600/20"
-                            : "border border-red-200 bg-red-50/50 text-red-700 hover:bg-red-100/70"
-                        }`}
-                      >
-                        <XCircle className="h-4 w-4" />
-                        Absent (Tidak Hadir)
-                      </button>
+                        <button
+                          type="button"
+                          disabled={markingAttendance}
+                          onClick={() =>
+                            handleMarkAttendance(selectedSchedule, "absent")
+                          }
+                          className={`inline-flex items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold transition-all cursor-pointer disabled:opacity-50 ${
+                            selectedSchedule.attendance_status === "absent"
+                              ? "bg-red-600 text-white shadow-xs ring-2 ring-red-600/20"
+                              : "border border-red-200 bg-red-50/50 text-red-700 hover:bg-red-100/70"
+                          }`}
+                        >
+                          <XCircle className="h-4 w-4" />
+                          Absent (Tidak Hadir)
+                        </button>
+                      </div>
+
+                      {/* Attendance Note / Absence Reason */}
+                      <div className="space-y-1.5 pt-1">
+                        <label className="block text-[11px] font-medium text-zinc-600">
+                          Attendance Note / Reason for Absence (e.g. Sick,
+                          Excused)
+                        </label>
+                        <div className="flex items-center gap-1.5">
+                          <input
+                            type="text"
+                            value={attendanceNoteDraft}
+                            onChange={(e) =>
+                              setAttendanceNoteDraft(e.target.value)
+                            }
+                            placeholder="Write reason (e.g. Sick / Sakit, Family event)..."
+                            className="flex-1 rounded-lg border border-zinc-200 bg-zinc-50/60 px-2.5 py-1.5 text-xs text-zinc-900 placeholder:text-zinc-400 focus:bg-white focus:border-zinc-400 focus:outline-hidden"
+                          />
+                          {selectedSchedule.attendance_status && (
+                            <button
+                              type="button"
+                              disabled={markingAttendance}
+                              onClick={() =>
+                                handleMarkAttendance(
+                                  selectedSchedule,
+                                  selectedSchedule.attendance_status as
+                                    | "present"
+                                    | "absent",
+                                  attendanceNoteDraft
+                                )
+                              }
+                              className="rounded-lg bg-zinc-900 px-2.5 py-1.5 text-[11px] font-medium text-white hover:bg-zinc-800 disabled:opacity-50 cursor-pointer shrink-0"
+                            >
+                              Save Note
+                            </button>
+                          )}
+                        </div>
+                      </div>
                     </div>
                   ) : (
-                    <p className="text-[11px] text-zinc-400">
-                      Only administrators or the assigned teacher can mark
-                      attendance.
-                    </p>
+                    <div className="space-y-1">
+                      {selectedSchedule.attendance_note && (
+                        <p className="text-[11px] text-zinc-600">
+                          Reason:{" "}
+                          <span className="font-medium text-zinc-800">
+                            {selectedSchedule.attendance_note}
+                          </span>
+                        </p>
+                      )}
+                      <p className="text-[11px] text-zinc-400">
+                        Only administrators or the assigned teacher can mark
+                        attendance.
+                      </p>
+                    </div>
                   )}
                 </div>
               )}
@@ -1402,7 +1503,9 @@ export function WeeklyCalendar() {
 
             {/* Modal Footer — Role-Gated Actions */}
             <div className="px-5 py-3.5 bg-zinc-50 border-t border-zinc-100 flex flex-wrap items-center justify-between gap-2">
-              {isAdmin ? (
+              {isAdmin ||
+              selectedSchedule.teacher_id === profile.id ||
+              selectedSchedule.created_by === profile.id ? (
                 <>
                   <div className="flex items-center gap-2">
                     <button
@@ -1414,7 +1517,7 @@ export function WeeklyCalendar() {
                       Edit
                     </button>
 
-                    {selectedSchedule.status === "pending" && (
+                    {isAdmin && selectedSchedule.status === "pending" && (
                       <button
                         type="button"
                         onClick={() =>
@@ -1452,22 +1555,10 @@ export function WeeklyCalendar() {
                 </>
               ) : (
                 <div className="w-full flex items-center justify-between gap-2">
-                  {selectedSchedule.teacher_id === profile.id &&
-                  selectedSchedule.status !== "cancelled" ? (
-                    <button
-                      type="button"
-                      onClick={() => openRequestChangeModal(selectedSchedule)}
-                      className="inline-flex items-center gap-1.5 rounded-lg bg-zinc-900 px-3.5 py-2 text-xs font-medium text-white hover:bg-zinc-800 cursor-pointer"
-                    >
-                      <GitPullRequest className="h-3.5 w-3.5" />
-                      Request Schedule Change
-                    </button>
-                  ) : (
-                    <span className="text-[11px] text-zinc-400">
-                      Read-only view (assigned to{" "}
-                      {selectedSchedule.teacher?.profile?.full_name})
-                    </span>
-                  )}
+                  <span className="text-[11px] text-zinc-400">
+                    Read-only view (assigned to{" "}
+                    {selectedSchedule.teacher?.profile?.full_name})
+                  </span>
 
                   <button
                     type="button"
@@ -1524,6 +1615,7 @@ export function WeeklyCalendar() {
                   </label>
                   <select
                     value={formTeacherId}
+                    disabled={!isAdmin}
                     onChange={(e) => {
                       const newTid = e.target.value;
                       setFormTeacherId(newTid);
@@ -1537,7 +1629,7 @@ export function WeeklyCalendar() {
                       }
                     }}
                     required
-                    className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-xs text-zinc-900 focus:border-zinc-900 focus:outline-hidden"
+                    className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-xs text-zinc-900 focus:border-zinc-900 focus:outline-hidden disabled:bg-zinc-50 disabled:text-zinc-600"
                   >
                     <option value="">Select teacher...</option>
                     {teachers

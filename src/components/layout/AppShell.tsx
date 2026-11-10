@@ -29,6 +29,8 @@ import {
   ChevronDown,
   CheckCheck,
   Search,
+  Sparkles,
+  CheckCircle2,
 } from "lucide-react";
 import type { NotificationItem, Profile } from "@/types/database";
 import { createClient } from "@/lib/supabase/client";
@@ -136,6 +138,7 @@ export function AppShell({
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [quickSearch, setQuickSearch] = useState("");
+  const [patchNotesOpen, setPatchNotesOpen] = useState(false);
 
   const fetchNotifications = useCallback(async () => {
     try {
@@ -286,9 +289,14 @@ export function AppShell({
               </div>
               {!collapsed && (
                 <div className="truncate">
-                  <span className="text-sm font-semibold tracking-tight text-zinc-900 block leading-none">
-                    KitMusicLesson
-                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-sm font-semibold tracking-tight text-zinc-900 leading-none">
+                      KitMusicLesson
+                    </span>
+                    <span className="inline-flex items-center rounded bg-zinc-900 px-1.5 py-0.5 text-[9px] font-bold tracking-wider text-white">
+                      v1.1
+                    </span>
+                  </div>
                   <span className="text-[11px] text-zinc-400 font-medium block mt-0.5">
                     Scheduling System
                   </span>
@@ -371,40 +379,64 @@ export function AppShell({
           </nav>
 
           {/* Footer Role Card */}
-          <div className="p-3 border-t border-zinc-100 shrink-0">
+          <div className="p-3 border-t border-zinc-100 shrink-0 space-y-2">
             {!collapsed ? (
-              <div className="rounded-lg bg-zinc-50 border border-zinc-200/60 px-3 py-2.5">
-                <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-medium text-zinc-500">
-                    Signed in as
-                  </span>
-                  <span
-                    className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${
-                      isSuperAdmin
-                        ? "bg-amber-100 text-amber-900 border border-amber-300/80"
-                        : profile.role === "admin"
-                        ? "bg-zinc-900 text-white"
-                        : "bg-zinc-200 text-zinc-700"
-                    }`}
-                  >
-                    {roleLabel}
-                  </span>
+              <>
+                <div className="rounded-lg bg-zinc-50 border border-zinc-200/60 px-3 py-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-medium text-zinc-500">
+                      Signed in as
+                    </span>
+                    <span
+                      className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${
+                        isSuperAdmin
+                          ? "bg-amber-100 text-amber-900 border border-amber-300/80"
+                          : profile.role === "admin"
+                          ? "bg-zinc-900 text-white"
+                          : "bg-zinc-200 text-zinc-700"
+                      }`}
+                    >
+                      {roleLabel}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-xs font-medium text-zinc-900 truncate">
+                    {profile.full_name}
+                  </p>
+                  <p className="text-[11px] text-zinc-400 truncate">
+                    {profile.email}
+                  </p>
                 </div>
-                <p className="mt-1 text-xs font-medium text-zinc-900 truncate">
-                  {profile.full_name}
-                </p>
-                <p className="text-[11px] text-zinc-400 truncate">
-                  {profile.email}
-                </p>
-              </div>
+
+                <button
+                  type="button"
+                  onClick={() => setPatchNotesOpen(true)}
+                  className="w-full flex items-center justify-between rounded-lg border border-zinc-200/80 bg-white px-2.5 py-1.5 text-[11px] font-medium text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900 transition-colors cursor-pointer"
+                >
+                  <span className="inline-flex items-center gap-1.5">
+                    <Sparkles className="h-3 w-3 text-amber-500" />
+                    <span>Patch 1.1 Notes</span>
+                  </span>
+                  <span className="rounded bg-zinc-100 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-zinc-800">
+                    v1.1
+                  </span>
+                </button>
+              </>
             ) : (
-              <div className="flex justify-center">
+              <div className="flex flex-col items-center gap-2">
                 <div
                   className="h-8 w-8 rounded-full bg-zinc-100 border border-zinc-200 flex items-center justify-center text-xs font-semibold text-zinc-700"
                   title={`${profile.full_name} (${profile.role})`}
                 >
                   {initials}
                 </div>
+                <button
+                  type="button"
+                  onClick={() => setPatchNotesOpen(true)}
+                  title="KitMusicLesson v1.1 — Patch Notes"
+                  className="rounded bg-zinc-900 px-1.5 py-0.5 font-mono text-[9px] font-bold text-white hover:bg-zinc-700 cursor-pointer"
+                >
+                  v1.1
+                </button>
               </div>
             )}
           </div>
@@ -433,6 +465,17 @@ export function AppShell({
             </div>
 
             <div className="flex items-center gap-2.5">
+              {/* Version & Patch Notes Trigger */}
+              <button
+                type="button"
+                onClick={() => setPatchNotesOpen(true)}
+                className="hidden sm:inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 bg-zinc-50/80 px-2.5 py-1.5 text-[11px] font-medium text-zinc-700 hover:bg-zinc-100 transition-colors cursor-pointer"
+                title="View Update Patch 1.1 Release Notes"
+              >
+                <Sparkles className="h-3.5 w-3.5 text-amber-500" />
+                <span>Patch v1.1</span>
+              </button>
+
               {/* Quick Search */}
               <form
                 onSubmit={handleQuickSearchSubmit}
@@ -643,6 +686,96 @@ export function AppShell({
             {children}
           </main>
         </div>
+
+        {/* Update Patch 1.1 — Release Notes Modal */}
+        {patchNotesOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-[1px] p-4">
+            <div className="bg-white rounded-2xl border border-zinc-200 shadow-xl w-full max-w-lg overflow-hidden">
+              <div className="px-5 py-4 border-b border-zinc-100 flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <div className="h-8 w-8 rounded-lg bg-zinc-900 text-white flex items-center justify-center">
+                    <Sparkles className="h-4 w-4 text-amber-400" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-sm font-semibold text-zinc-900">
+                        KitMusicLesson — Update Patch 1.1
+                      </h3>
+                      <span className="rounded bg-zinc-900 px-1.5 py-0.5 font-mono text-[10px] font-bold text-white">
+                        v1.1
+                      </span>
+                    </div>
+                    <p className="text-xs text-zinc-500">
+                      Changelog & release notes for version 1.1
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPatchNotesOpen(false)}
+                  className="h-7 w-7 rounded-lg flex items-center justify-center text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 cursor-pointer"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              <div className="p-5 space-y-3.5 max-h-[75vh] overflow-y-auto">
+                <div className="rounded-xl border border-zinc-200/80 bg-zinc-50/60 p-3.5 space-y-1">
+                  <div className="flex items-center gap-2 text-xs font-semibold text-zinc-900">
+                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+                    <span>1. Teacher Self-Scheduling, Student Management & Email Editing</span>
+                  </div>
+                  <p className="text-xs text-zinc-600 pl-5 leading-relaxed">
+                    Teachers can now create their own lesson schedules, edit or cancel schedules they created or teach, and add/edit their own students. Teachers can also update their own email address (and Admins can update any account&apos;s email).
+                  </p>
+                </div>
+
+                <div className="rounded-xl border border-zinc-200/80 bg-zinc-50/60 p-3.5 space-y-1">
+                  <div className="flex items-center gap-2 text-xs font-semibold text-zinc-900">
+                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+                    <span>2. Streamlined Student Table & Absence Reason Notes</span>
+                  </div>
+                  <p className="text-xs text-zinc-600 pl-5 leading-relaxed">
+                    Removed the inline Attendance Record column from the Students directory table so attendance history is accessed cleanly via the <strong>Student Report</strong> button. Teachers and Admins can now attach an <strong>Attendance Note / Reason for Absence</strong> (e.g., <em>Sakit</em>, <em>Izin</em>) on any lesson.
+                  </p>
+                </div>
+
+                <div className="rounded-xl border border-zinc-200/80 bg-zinc-50/60 p-3.5 space-y-1">
+                  <div className="flex items-center gap-2 text-xs font-semibold text-zinc-900">
+                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+                    <span>3. Cleaner Account Management Table</span>
+                  </div>
+                  <p className="text-xs text-zinc-600 pl-5 leading-relaxed">
+                    Removed the <em>Last Sign-In</em> column from the Account Management table for a cleaner layout.
+                  </p>
+                </div>
+
+                <div className="rounded-xl border border-zinc-200/80 bg-zinc-50/60 p-3.5 space-y-1">
+                  <div className="flex items-center gap-2 text-xs font-semibold text-zinc-900">
+                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+                    <span>4. Updated Weekly Schedule Card Attributes</span>
+                  </div>
+                  <p className="text-xs text-zinc-600 pl-5 leading-relaxed">
+                    Schedule blocks on the Weekly Calendar now display <strong>Instrument - Teacher Name - Practice Room</strong> so key lesson details are immediately visible at a glance.
+                  </p>
+                </div>
+              </div>
+
+              <div className="px-5 py-3.5 border-t border-zinc-100 bg-zinc-50/50 flex items-center justify-between">
+                <span className="text-[11px] text-zinc-500">
+                  KitMusicLesson Scheduling System · Version 1.1
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setPatchNotesOpen(false)}
+                  className="rounded-lg bg-zinc-900 px-4 py-1.5 text-xs font-medium text-white hover:bg-zinc-800 cursor-pointer"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </UserContext.Provider>
   );

@@ -3,17 +3,19 @@ import { formatJakartaDate, formatJakartaTimeRange } from "@/lib/timezone";
 import type { AttendanceStatus } from "@/types/database";
 
 const ATTENDANCE_TAG_REGEX =
-  /^\[ATTENDANCE:(present|absent)(?:\|([^\]]+))?\](?:\n|$)/i;
+  /^\[ATTENDANCE:(present|absent)(?:\|([^\]|]*))?(?:\|note:([^\]]*))?\](?:\n|$)/i;
 
 export function parseScheduleAttendanceAndNotes(rawNotes: unknown): {
   attendance_status: AttendanceStatus;
   attendance_marked_at: string | null;
+  attendance_note: string | null;
   notes: string | null;
 } {
   if (typeof rawNotes !== "string" || !rawNotes) {
     return {
       attendance_status: null,
       attendance_marked_at: null,
+      attendance_note: null,
       notes: null,
     };
   }
@@ -23,17 +25,27 @@ export function parseScheduleAttendanceAndNotes(rawNotes: unknown): {
     return {
       attendance_status: null,
       attendance_marked_at: null,
+      attendance_note: null,
       notes: rawNotes,
     };
   }
 
   const status = match[1].toLowerCase() as "present" | "absent";
   const markedAt = match[2] || null;
+  let attendanceNote: string | null = null;
+  if (match[3]) {
+    try {
+      attendanceNote = decodeURIComponent(match[3]).trim() || null;
+    } catch {
+      attendanceNote = match[3].trim() || null;
+    }
+  }
   const remainder = rawNotes.slice(match[0].length).trim();
 
   return {
     attendance_status: status,
     attendance_marked_at: markedAt,
+    attendance_note: attendanceNote,
     notes: remainder.length > 0 ? remainder : null,
   };
 }
@@ -41,14 +53,19 @@ export function parseScheduleAttendanceAndNotes(rawNotes: unknown): {
 export function encodeScheduleAttendanceAndNotes(
   attendanceStatus: AttendanceStatus,
   cleanNotes: string | null | undefined,
-  markedAtIso?: string | null
+  markedAtIso?: string | null,
+  attendanceNote?: string | null
 ): string | null {
   const trimmedNotes = cleanNotes?.trim() || "";
   if (!attendanceStatus) {
     return trimmedNotes.length > 0 ? trimmedNotes : null;
   }
   const timestamp = markedAtIso || new Date().toISOString();
-  const prefix = `[ATTENDANCE:${attendanceStatus}|${timestamp}]`;
+  const cleanAttNote = attendanceNote?.trim() || "";
+  const noteSegment = cleanAttNote
+    ? `|note:${encodeURIComponent(cleanAttNote)}`
+    : "";
+  const prefix = `[ATTENDANCE:${attendanceStatus}|${timestamp}${noteSegment}]`;
   return trimmedNotes.length > 0 ? `${prefix}\n${trimmedNotes}` : prefix;
 }
 
@@ -295,6 +312,7 @@ export function normalizeScheduleRow(row: Record<string, unknown>) {
     notes: parsedNotes.notes,
     attendance_status: parsedNotes.attendance_status,
     attendance_marked_at: parsedNotes.attendance_marked_at,
+    attendance_note: parsedNotes.attendance_note,
     teacher,
     student: student ?? null,
     instrument: instrument ?? null,

@@ -92,6 +92,9 @@ export default function StudentsPage() {
   const [markingScheduleId, setMarkingScheduleId] = useState<string | null>(
     null
   );
+  const [reportNoteDrafts, setReportNoteDrafts] = useState<
+    Record<string, string>
+  >({});
 
   const historyStudent = useMemo(
     () => students.find((s) => s.id === historyStudentId) ?? null,
@@ -214,25 +217,38 @@ export default function StudentsPage() {
 
   const handleMarkAttendanceFromReport = async (
     sch: ScheduleWithDetails,
-    clickedStatus: "present" | "absent"
+    clickedStatus: "present" | "absent",
+    noteOverride?: string
   ) => {
     if (markingScheduleId) return;
     const nextStatus: AttendanceStatus =
-      sch.attendance_status === clickedStatus ? null : clickedStatus;
+      noteOverride !== undefined
+        ? clickedStatus
+        : sch.attendance_status === clickedStatus
+        ? null
+        : clickedStatus;
+    const draftVal =
+      noteOverride ?? reportNoteDrafts[sch.id] ?? sch.attendance_note ?? "";
+    const noteToSave = nextStatus === null ? null : draftVal.trim() || null;
 
     setMarkingScheduleId(sch.id);
     try {
       const res = await fetch(`/api/schedules/${sch.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ attendance_status: nextStatus }),
+        body: JSON.stringify({
+          attendance_status: nextStatus,
+          attendance_note: noteToSave,
+        }),
       });
       if (res.ok) {
         setToast(
           nextStatus === "present"
             ? "Attendance marked as Present."
             : nextStatus === "absent"
-            ? "Attendance marked as Absent."
+            ? `Attendance marked as Absent${
+                noteToSave ? ` (${noteToSave})` : ""
+              }.`
             : "Attendance status cleared."
         );
         await loadStudents();
@@ -395,16 +411,14 @@ export default function StudentsPage() {
           </select>
         </div>
 
-        {isAdmin && (
-          <button
-            type="button"
-            onClick={openAddModal}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-zinc-900 px-3.5 py-2 text-xs font-medium text-white hover:bg-zinc-800 transition-colors cursor-pointer"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            Add Student
-          </button>
-        )}
+        <button
+          type="button"
+          onClick={openAddModal}
+          className="inline-flex items-center gap-1.5 rounded-lg bg-zinc-900 px-3.5 py-2 text-xs font-medium text-white hover:bg-zinc-800 transition-colors cursor-pointer"
+        >
+          <Plus className="h-3.5 w-3.5" />
+          Add Student
+        </button>
       </div>
 
       {/* Students Table */}
@@ -425,32 +439,17 @@ export default function StudentsPage() {
                   <th className="py-3 px-4">Student Name</th>
                   <th className="py-3 px-4">Enrolled Instruments</th>
                   <th className="py-3 px-4">Assigned Teacher(s)</th>
-                  <th className="py-3 px-4">Attendance Record</th>
                   <th className="py-3 px-4">Status</th>
                   <th className="py-3 px-4 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-100 text-xs">
                 {filteredStudents.map((s) => {
-                  const presentCount =
-                    s.present_count ??
-                    (s.schedules || []).filter(
-                      (sch) =>
-                        sch.status !== "cancelled" &&
-                        sch.attendance_status === "present"
-                    ).length;
-                  const absentCount =
-                    s.absent_count ??
-                    (s.schedules || []).filter(
-                      (sch) =>
-                        sch.status !== "cancelled" &&
-                        sch.attendance_status === "absent"
-                    ).length;
-                  const markedCount = presentCount + absentCount;
-                  const rate =
-                    markedCount > 0
-                      ? Math.round((presentCount / markedCount) * 100)
-                      : null;
+                  const canEditStudent =
+                    isAdmin ||
+                    Boolean(
+                      s.assigned_teachers?.some((t) => t.id === profile.id)
+                    );
 
                   return (
                     <tr
@@ -497,23 +496,6 @@ export default function StudentsPage() {
                         )}
                       </td>
                       <td className="py-3.5 px-4">
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
-                            <CheckCircle2 className="h-3 w-3" />
-                            {presentCount} Present
-                          </span>
-                          <span className="inline-flex items-center gap-1 rounded-md bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-red-700">
-                            <XCircle className="h-3 w-3" />
-                            {absentCount} Absent
-                          </span>
-                          {rate !== null && (
-                            <span className="text-[11px] font-medium text-zinc-500">
-                              ({rate}%)
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="py-3.5 px-4">
                         <span
                           className={`inline-flex items-center rounded-md px-2 py-0.5 text-[10px] font-semibold uppercase ${
                             s.is_active
@@ -539,29 +521,30 @@ export default function StudentsPage() {
                             Student Report ({s.total_lessons_count})
                           </button>
 
+                          {canEditStudent && (
+                            <button
+                              type="button"
+                              onClick={() => openEditModal(s)}
+                              className="inline-flex items-center gap-1 rounded-lg border border-zinc-200 bg-white px-2.5 py-1 text-[11px] font-medium text-zinc-700 hover:bg-zinc-50 cursor-pointer"
+                            >
+                              <Edit3 className="h-3 w-3 text-zinc-400" />
+                              Edit
+                            </button>
+                          )}
+
                           {isAdmin && (
-                            <>
-                              <button
-                                type="button"
-                                onClick={() => openEditModal(s)}
-                                className="inline-flex items-center gap-1 rounded-lg border border-zinc-200 bg-white px-2.5 py-1 text-[11px] font-medium text-zinc-700 hover:bg-zinc-50 cursor-pointer"
-                              >
-                                <Edit3 className="h-3 w-3 text-zinc-400" />
-                                Edit
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleToggleActive(s)}
-                                className="inline-flex items-center justify-center h-7 w-7 rounded-lg border border-zinc-200 bg-white text-zinc-500 hover:text-zinc-900 hover:bg-zinc-50 cursor-pointer"
-                                title={
-                                  s.is_active
-                                    ? "Deactivate student"
-                                    : "Activate student"
-                                }
-                              >
-                                <Power className="h-3.5 w-3.5" />
-                              </button>
-                            </>
+                            <button
+                              type="button"
+                              onClick={() => handleToggleActive(s)}
+                              className="inline-flex items-center justify-center h-7 w-7 rounded-lg border border-zinc-200 bg-white text-zinc-500 hover:text-zinc-900 hover:bg-zinc-50 cursor-pointer"
+                              title={
+                                s.is_active
+                                  ? "Deactivate student"
+                                  : "Activate student"
+                              }
+                            >
+                              <Power className="h-3.5 w-3.5" />
+                            </button>
                           )}
                         </div>
                       </td>
@@ -851,65 +834,110 @@ export default function StudentsPage() {
                               </p>
                               {sch.notes && (
                                 <p className="text-[11px] text-zinc-500 italic">
-                                  Note: &ldquo;{sch.notes}&rdquo;
+                                  Lesson note: &ldquo;{sch.notes}&rdquo;
+                                </p>
+                              )}
+                              {sch.attendance_note && (
+                                <p className="text-[11px] font-medium text-red-600">
+                                  Attendance note / Reason: &ldquo;
+                                  {sch.attendance_note}&rdquo;
                                 </p>
                               )}
                             </div>
 
-                            <div className="flex items-center gap-1.5 shrink-0">
-                              {canMark ? (
-                                <>
-                                  <button
-                                    type="button"
-                                    disabled={markingScheduleId === sch.id}
-                                    onClick={() =>
-                                      handleMarkAttendanceFromReport(
-                                        sch,
-                                        "present"
-                                      )
-                                    }
-                                    className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-semibold transition-colors cursor-pointer disabled:opacity-50 ${
-                                      sch.attendance_status === "present"
-                                        ? "bg-emerald-600 text-white shadow-2xs"
-                                        : "border border-emerald-200 bg-emerald-50/50 text-emerald-700 hover:bg-emerald-100"
-                                    }`}
-                                  >
+                            <div className="flex flex-col sm:items-end gap-1.5 shrink-0">
+                              <div className="flex items-center gap-1.5">
+                                {canMark ? (
+                                  <>
+                                    <button
+                                      type="button"
+                                      disabled={markingScheduleId === sch.id}
+                                      onClick={() =>
+                                        handleMarkAttendanceFromReport(
+                                          sch,
+                                          "present"
+                                        )
+                                      }
+                                      className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-semibold transition-colors cursor-pointer disabled:opacity-50 ${
+                                        sch.attendance_status === "present"
+                                          ? "bg-emerald-600 text-white shadow-2xs"
+                                          : "border border-emerald-200 bg-emerald-50/50 text-emerald-700 hover:bg-emerald-100"
+                                      }`}
+                                    >
+                                      <CheckCircle2 className="h-3 w-3" />
+                                      Present
+                                    </button>
+                                    <button
+                                      type="button"
+                                      disabled={markingScheduleId === sch.id}
+                                      onClick={() =>
+                                        handleMarkAttendanceFromReport(
+                                          sch,
+                                          "absent"
+                                        )
+                                      }
+                                      className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-semibold transition-colors cursor-pointer disabled:opacity-50 ${
+                                        sch.attendance_status === "absent"
+                                          ? "bg-red-600 text-white shadow-2xs"
+                                          : "border border-red-200 bg-red-50/50 text-red-700 hover:bg-red-100"
+                                      }`}
+                                    >
+                                      <XCircle className="h-3 w-3" />
+                                      Absent
+                                    </button>
+                                  </>
+                                ) : sch.attendance_status === "present" ? (
+                                  <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
                                     <CheckCircle2 className="h-3 w-3" />
                                     Present
-                                  </button>
+                                  </span>
+                                ) : sch.attendance_status === "absent" ? (
+                                  <span className="inline-flex items-center gap-1 rounded-md bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-red-700">
+                                    <XCircle className="h-3 w-3" />
+                                    Absent
+                                  </span>
+                                ) : (
+                                  <span className="rounded-md bg-zinc-100 px-2 py-0.5 text-[10px] font-medium text-zinc-500">
+                                    Unmarked
+                                  </span>
+                                )}
+                              </div>
+
+                              {canMark && sch.attendance_status === "absent" && (
+                                <div className="flex items-center gap-1">
+                                  <input
+                                    type="text"
+                                    value={
+                                      reportNoteDrafts[sch.id] !== undefined
+                                        ? reportNoteDrafts[sch.id]
+                                        : sch.attendance_note || ""
+                                    }
+                                    onChange={(e) =>
+                                      setReportNoteDrafts((prev) => ({
+                                        ...prev,
+                                        [sch.id]: e.target.value,
+                                      }))
+                                    }
+                                    placeholder="Reason (e.g. Sick)..."
+                                    className="w-36 rounded-md border border-zinc-200 bg-white px-2 py-0.5 text-[11px] text-zinc-800 placeholder:text-zinc-400"
+                                  />
                                   <button
                                     type="button"
                                     disabled={markingScheduleId === sch.id}
                                     onClick={() =>
                                       handleMarkAttendanceFromReport(
                                         sch,
-                                        "absent"
+                                        "absent",
+                                        reportNoteDrafts[sch.id] ??
+                                          sch.attendance_note ??
+                                          ""
                                       )
                                     }
-                                    className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-semibold transition-colors cursor-pointer disabled:opacity-50 ${
-                                      sch.attendance_status === "absent"
-                                        ? "bg-red-600 text-white shadow-2xs"
-                                        : "border border-red-200 bg-red-50/50 text-red-700 hover:bg-red-100"
-                                    }`}
+                                    className="rounded-md bg-zinc-900 px-2 py-0.5 text-[10px] font-medium text-white hover:bg-zinc-800 cursor-pointer"
                                   >
-                                    <XCircle className="h-3 w-3" />
-                                    Absent
+                                    Save
                                   </button>
-                                </>
-                              ) : sch.attendance_status === "present" ? (
-                                <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
-                                  <CheckCircle2 className="h-3 w-3" />
-                                  Present
-                                </span>
-                              ) : sch.attendance_status === "absent" ? (
-                                <span className="inline-flex items-center gap-1 rounded-md bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-red-700">
-                                  <XCircle className="h-3 w-3" />
-                                  Absent
-                                </span>
-                              ) : (
-                                <span className="rounded-md bg-zinc-100 px-2 py-0.5 text-[10px] font-medium text-zinc-500">
-                                  Unmarked
-                                </span>
+                                </div>
                               )}
                             </div>
                           </div>

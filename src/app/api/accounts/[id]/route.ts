@@ -16,6 +16,7 @@ import {
 
 const updateAccountSchema = z.object({
   full_name: z.string().min(2).optional(),
+  email: z.string().email("Valid email address is required").optional(),
   role: z.enum(["admin", "teacher"]).optional(),
   is_active: z.boolean().optional(),
   password: z
@@ -111,11 +112,28 @@ export async function PATCH(
     // Build Supabase Auth Admin update payload
     const authUpdatePayload: {
       user_metadata: Record<string, unknown>;
+      email?: string;
+      email_confirm?: boolean;
       ban_duration?: string;
       password?: string;
     } = {
       user_metadata: updatedMeta,
     };
+
+    if (
+      data.email !== undefined &&
+      data.email.trim().toLowerCase() !==
+        targetUserRes.user.email?.toLowerCase()
+    ) {
+      if (targetIsSuperAdmin && id !== adminProfile.id) {
+        return NextResponse.json(
+          { error: "Only the Super Admin can change their own email." },
+          { status: 403 }
+        );
+      }
+      authUpdatePayload.email = data.email.trim().toLowerCase();
+      authUpdatePayload.email_confirm = true;
+    }
 
     if (data.is_active !== undefined) {
       // Lock/unlock account at Supabase Auth database level as well
@@ -143,6 +161,9 @@ export async function PATCH(
     };
     if (data.full_name !== undefined) {
       profileUpdate.full_name = data.full_name.trim();
+    }
+    if (data.email !== undefined) {
+      profileUpdate.email = data.email.trim().toLowerCase();
     }
     if (data.role !== undefined) {
       profileUpdate.role = data.role;

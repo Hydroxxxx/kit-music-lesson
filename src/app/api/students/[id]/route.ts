@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { AuthError, logAuditEvent, requireAdmin } from "@/lib/auth";
+import { AuthError, logAuditEvent, requireAuth } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 const updateStudentSchema = z.object({
@@ -16,7 +16,7 @@ export async function PATCH(
   context: { params: Promise<{ id: string }> }
 ) {
   try {
-    const adminProfile = await requireAdmin();
+    const actor = await requireAuth();
     const { id } = await context.params;
     const body = await request.json();
     const parsed = updateStudentSchema.safeParse(body);
@@ -29,6 +29,24 @@ export async function PATCH(
     }
 
     const admin = createAdminClient();
+
+    // If actor is a teacher, verify they teach this student
+    if (actor.role !== "admin") {
+      const { data: taughtSchedules } = await admin
+        .from("schedules")
+        .select("id")
+        .eq("student_id", id)
+        .eq("teacher_id", actor.id)
+        .limit(1);
+
+      if (!taughtSchedules || taughtSchedules.length === 0) {
+        return NextResponse.json(
+          { error: "Teachers can only edit students they teach." },
+          { status: 403 }
+        );
+      }
+    }
+
     const updates: Record<string, unknown> = {};
     const d = parsed.data;
 
@@ -36,7 +54,9 @@ export async function PATCH(
     if (d.phone !== undefined) updates.phone = d.phone?.trim() || null;
     if (d.email !== undefined) updates.email = d.email?.trim() || null;
     if (d.notes !== undefined) updates.notes = d.notes?.trim() || null;
-    if (d.is_active !== undefined) updates.is_active = d.is_active;
+    if (d.is_active !== undefined && actor.role === "admin") {
+      updates.is_active = d.is_active;
+    }
 
     const { data: student, error } = await admin
       .from("students")
@@ -50,7 +70,7 @@ export async function PATCH(
     }
 
     await logAuditEvent({
-      userId: adminProfile.id,
+      userId: actor.id,
       action: "UPDATE_STUDENT",
       tableName: "students",
       recordId: id,

@@ -109,7 +109,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const adminProfile = await requireAdmin();
+    const actor = await requireAuth();
     const body = await request.json();
     const parsed = createStudentSchema.safeParse(body);
 
@@ -140,7 +140,7 @@ export async function POST(request: Request) {
     }
 
     await logAuditEvent({
-      userId: adminProfile.id,
+      userId: actor.id,
       action: "CREATE_STUDENT",
       tableName: "students",
       recordId: student.id,
