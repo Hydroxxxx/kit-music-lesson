@@ -74,6 +74,13 @@ export async function GET() {
       const canSeePrivateContact =
         profile.role === "admin" || isAssignedTeacher;
 
+      const presentCount = activeSchedules.filter(
+        (sch) => sch.attendance_status === "present"
+      ).length;
+      const absentCount = activeSchedules.filter(
+        (sch) => sch.attendance_status === "absent"
+      ).length;
+
       return {
         ...s,
         phone: canSeePrivateContact ? s.phone : s.phone ? "Protected" : null,
@@ -82,7 +89,9 @@ export async function GET() {
         assigned_teachers: Array.from(teacherMap.values()),
         upcoming_lessons_count: upcomingSchedules.length,
         total_lessons_count: activeSchedules.length,
-        schedules: stuSchedules.slice(0, 25),
+        present_count: presentCount,
+        absent_count: absentCount,
+        schedules: stuSchedules.slice(0, 250),
       };
     });
 

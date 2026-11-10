@@ -1,5 +1,6 @@
 export type UserRole = "admin" | "teacher";
 export type ScheduleStatus = "pending" | "confirmed" | "cancelled";
+export type AttendanceStatus = "present" | "absent" | null;
 export type RequestStatus = "pending" | "approved" | "rejected" | "cancelled";
 
 export interface Profile {
@@ -67,6 +68,8 @@ export interface Schedule {
   start_at: string;
   end_at: string;
   status: ScheduleStatus;
+  attendance_status?: AttendanceStatus;
+  attendance_marked_at?: string | null;
   notes: string | null;
   created_by: string | null;
   updated_by: string | null;

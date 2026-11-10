@@ -1,5 +1,56 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { formatJakartaDate, formatJakartaTimeRange } from "@/lib/timezone";
+import type { AttendanceStatus } from "@/types/database";
+
+const ATTENDANCE_TAG_REGEX =
+  /^\[ATTENDANCE:(present|absent)(?:\|([^\]]+))?\](?:\n|$)/i;
+
+export function parseScheduleAttendanceAndNotes(rawNotes: unknown): {
+  attendance_status: AttendanceStatus;
+  attendance_marked_at: string | null;
+  notes: string | null;
+} {
+  if (typeof rawNotes !== "string" || !rawNotes) {
+    return {
+      attendance_status: null,
+      attendance_marked_at: null,
+      notes: null,
+    };
+  }
+
+  const match = rawNotes.match(ATTENDANCE_TAG_REGEX);
+  if (!match) {
+    return {
+      attendance_status: null,
+      attendance_marked_at: null,
+      notes: rawNotes,
+    };
+  }
+
+  const status = match[1].toLowerCase() as "present" | "absent";
+  const markedAt = match[2] || null;
+  const remainder = rawNotes.slice(match[0].length).trim();
+
+  return {
+    attendance_status: status,
+    attendance_marked_at: markedAt,
+    notes: remainder.length > 0 ? remainder : null,
+  };
+}
+
+export function encodeScheduleAttendanceAndNotes(
+  attendanceStatus: AttendanceStatus,
+  cleanNotes: string | null | undefined,
+  markedAtIso?: string | null
+): string | null {
+  const trimmedNotes = cleanNotes?.trim() || "";
+  if (!attendanceStatus) {
+    return trimmedNotes.length > 0 ? trimmedNotes : null;
+  }
+  const timestamp = markedAtIso || new Date().toISOString();
+  const prefix = `[ATTENDANCE:${attendanceStatus}|${timestamp}]`;
+  return trimmedNotes.length > 0 ? `${prefix}\n${trimmedNotes}` : prefix;
+}
 
 export interface ConflictCheckParams {
   teacherId: string;
@@ -237,9 +288,13 @@ export function normalizeScheduleRow(row: Record<string, unknown>) {
     : row.instrument;
   const room = Array.isArray(row.room) ? row.room[0] : row.room;
   const series = Array.isArray(row.series) ? row.series[0] : row.series;
+  const parsedNotes = parseScheduleAttendanceAndNotes(row.notes);
 
   return {
     ...row,
+    notes: parsedNotes.notes,
+    attendance_status: parsedNotes.attendance_status,
+    attendance_marked_at: parsedNotes.attendance_marked_at,
     teacher,
     student: student ?? null,
     instrument: instrument ?? null,

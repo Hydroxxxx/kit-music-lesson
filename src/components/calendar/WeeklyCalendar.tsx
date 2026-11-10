@@ -31,6 +31,7 @@ import {
   GitPullRequest,
   Ban,
   CheckCircle2,
+  XCircle,
   X,
   Repeat,
   Loader2,
@@ -59,6 +60,7 @@ import {
   toJakartaTimeString,
 } from "@/lib/timezone";
 import type {
+  AttendanceStatus,
   Instrument,
   Room,
   ScheduleStatus,
@@ -168,6 +170,7 @@ export function WeeklyCalendar() {
   // Cancel Confirmation State
   const [confirmCancelOpen, setConfirmCancelOpen] = useState(false);
   const [cancelling, setCancelling] = useState(false);
+  const [markingAttendance, setMarkingAttendance] = useState(false);
 
   // Toast feedback
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -508,6 +511,62 @@ export function WeeklyCalendar() {
     }
   };
 
+  // Mark Student Attendance (Present / Absent) on a Schedule
+  const handleMarkAttendance = async (
+    sched: ScheduleWithDetails,
+    clickedStatus: "present" | "absent"
+  ) => {
+    if (markingAttendance) return;
+    const nextAttendance: AttendanceStatus =
+      sched.attendance_status === clickedStatus ? null : clickedStatus;
+
+    setMarkingAttendance(true);
+    // Optimistically update local state for instant visual feedback
+    setSchedules((prev) =>
+      prev.map((item) =>
+        item.id === sched.id
+          ? { ...item, attendance_status: nextAttendance }
+          : item
+      )
+    );
+
+    try {
+      const res = await fetch(`/api/schedules/${sched.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ attendance_status: nextAttendance }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        showToast(json.error || "Failed to update attendance");
+        await fetchWeekSchedules(false);
+        return;
+      }
+
+      if (json.schedule) {
+        setSchedules((prev) =>
+          prev.map((item) =>
+            item.id === sched.id ? (json.schedule as ScheduleWithDetails) : item
+          )
+        );
+      }
+
+      showToast(
+        nextAttendance === "present"
+          ? `Marked ${sched.student?.full_name || "student"} as Present (recorded in student report).`
+          : nextAttendance === "absent"
+          ? `Marked ${sched.student?.full_name || "student"} as Absent (recorded in student report).`
+          : "Attendance status cleared."
+      );
+      await broadcastRealtimeSync("schedule_changed");
+    } catch {
+      showToast("Failed to save attendance");
+      await fetchWeekSchedules(false);
+    } finally {
+      setMarkingAttendance(false);
+    }
+  };
+
   // Cancel Schedule (Admin)
   const handleConfirmCancelSchedule = async () => {
     if (!selectedSchedule) return;
@@ -640,14 +699,30 @@ export function WeeklyCalendar() {
             <span className="text-[11px] font-semibold tracking-tight truncate leading-tight">
               {instrumentName}
             </span>
-            <span
-              style={{
-                backgroundColor:
-                  status === "pending" ? "#F59E0B" : theme.accent,
-              }}
-              className="h-1.5 w-1.5 rounded-full shrink-0"
-              title={`Status: ${status}`}
-            />
+            {sched.attendance_status === "present" ? (
+              <span
+                className="inline-flex items-center justify-center h-3.5 px-1 rounded bg-emerald-600 text-white text-[9px] font-bold shrink-0"
+                title="Attendance: Present"
+              >
+                ✓
+              </span>
+            ) : sched.attendance_status === "absent" ? (
+              <span
+                className="inline-flex items-center justify-center h-3.5 px-1 rounded bg-red-600 text-white text-[9px] font-bold shrink-0"
+                title="Attendance: Absent"
+              >
+                ✕
+              </span>
+            ) : (
+              <span
+                style={{
+                  backgroundColor:
+                    status === "pending" ? "#F59E0B" : theme.accent,
+                }}
+                className="h-1.5 w-1.5 rounded-full shrink-0"
+                title={`Status: ${status}`}
+              />
+            )}
           </div>
           <p
             style={{ color: theme.subtext }}
@@ -1101,6 +1176,18 @@ export function WeeklyCalendar() {
                       Weekly Series
                     </span>
                   )}
+                  {selectedSchedule.attendance_status === "present" && (
+                    <span className="inline-flex items-center gap-1 rounded-md bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-emerald-800">
+                      <CheckCircle2 className="h-3 w-3" />
+                      Present
+                    </span>
+                  )}
+                  {selectedSchedule.attendance_status === "absent" && (
+                    <span className="inline-flex items-center gap-1 rounded-md bg-red-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-red-700">
+                      <XCircle className="h-3 w-3" />
+                      Absent
+                    </span>
+                  )}
                 </div>
                 <h3 className="mt-1.5 text-base font-semibold text-zinc-900">
                   {selectedSchedule.instrument?.name || "Music Lesson"}
@@ -1221,6 +1308,84 @@ export function WeeklyCalendar() {
                   </span>
                 </div>
               </div>
+
+              {/* Lesson Attendance Box (Present / Absent) */}
+              {selectedSchedule.status !== "cancelled" && (
+                <div className="rounded-xl border border-zinc-200 bg-white p-3.5 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-xs font-semibold text-zinc-900">
+                        Student Attendance
+                      </p>
+                      <p className="text-[11px] text-zinc-500">
+                        Automatically recorded in{" "}
+                        <span className="font-medium text-zinc-700">
+                          {selectedSchedule.student?.full_name}
+                        </span>
+                        &apos;s monthly report
+                      </p>
+                    </div>
+                    {selectedSchedule.attendance_status ? (
+                      <span
+                        className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-semibold uppercase ${
+                          selectedSchedule.attendance_status === "present"
+                            ? "bg-emerald-50 text-emerald-700"
+                            : "bg-red-50 text-red-700"
+                        }`}
+                      >
+                        {selectedSchedule.attendance_status === "present"
+                          ? "Present"
+                          : "Absent"}
+                      </span>
+                    ) : (
+                      <span className="text-[10px] font-medium text-zinc-400">
+                        Not marked yet
+                      </span>
+                    )}
+                  </div>
+
+                  {isAdmin || selectedSchedule.teacher_id === profile.id ? (
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        disabled={markingAttendance}
+                        onClick={() =>
+                          handleMarkAttendance(selectedSchedule, "present")
+                        }
+                        className={`inline-flex items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold transition-all cursor-pointer disabled:opacity-50 ${
+                          selectedSchedule.attendance_status === "present"
+                            ? "bg-emerald-600 text-white shadow-xs ring-2 ring-emerald-600/20"
+                            : "border border-emerald-200 bg-emerald-50/50 text-emerald-700 hover:bg-emerald-100/70"
+                        }`}
+                      >
+                        <CheckCircle2 className="h-4 w-4" />
+                        Present (Hadir)
+                      </button>
+
+                      <button
+                        type="button"
+                        disabled={markingAttendance}
+                        onClick={() =>
+                          handleMarkAttendance(selectedSchedule, "absent")
+                        }
+                        className={`inline-flex items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold transition-all cursor-pointer disabled:opacity-50 ${
+                          selectedSchedule.attendance_status === "absent"
+                            ? "bg-red-600 text-white shadow-xs ring-2 ring-red-600/20"
+                            : "border border-red-200 bg-red-50/50 text-red-700 hover:bg-red-100/70"
+                        }`}
+                      >
+                        <XCircle className="h-4 w-4" />
+                        Absent (Tidak Hadir)
+                      </button>
+                    </div>
+                  ) : (
+                    <p className="text-[11px] text-zinc-400">
+                      Only administrators or the assigned teacher can mark
+                      attendance.
+                    </p>
+                  )}
+                </div>
+              )}
 
               {selectedSchedule.notes && (
                 <div className="rounded-xl bg-zinc-50/80 border border-zinc-100 p-3.5">

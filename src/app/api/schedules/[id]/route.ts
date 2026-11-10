@@ -5,11 +5,14 @@ import {
   createNotification,
   logAuditEvent,
   requireAdmin,
+  requireAuth,
 } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
   checkScheduleConflicts,
+  encodeScheduleAttendanceAndNotes,
   normalizeScheduleRow,
+  parseScheduleAttendanceAndNotes,
   SCHEDULE_DETAIL_SELECT,
   translateDbConstraintError,
   validateTeacherQualification,
@@ -40,6 +43,7 @@ const updateScheduleSchema = z.object({
   start_at: z.string().optional(),
   end_at: z.string().optional(),
   status: z.enum(["pending", "confirmed", "cancelled"]).optional(),
+  attendance_status: z.enum(["present", "absent"]).nullable().optional(),
   notes: z.string().nullable().optional(),
   detach_from_series: z.boolean().optional(),
 });
@@ -49,7 +53,7 @@ export async function PATCH(
   context: { params: Promise<{ id: string }> }
 ) {
   try {
-    const adminProfile = await requireAdmin();
+    const actor = await requireAuth();
     const { id } = await context.params;
     const body = await request.json();
     const parsed = updateScheduleSchema.safeParse(body);
@@ -76,6 +80,89 @@ export async function PATCH(
     }
 
     const input = parsed.data;
+    const isAdmin = actor.role === "admin";
+    const isAssignedTeacher = existing.teacher_id === actor.id;
+
+    // Non-admin teachers can only mark attendance on their own assigned lessons
+    const isOnlyAttendanceUpdate =
+      input.attendance_status !== undefined &&
+      input.teacher_id === undefined &&
+      input.student_id === undefined &&
+      input.instrument_id === undefined &&
+      input.room_id === undefined &&
+      input.date === undefined &&
+      input.start_time === undefined &&
+      input.end_time === undefined &&
+      input.start_at === undefined &&
+      input.end_at === undefined &&
+      input.status === undefined;
+
+    if (!isAdmin && (!isAssignedTeacher || !isOnlyAttendanceUpdate)) {
+      return NextResponse.json(
+        { error: "Forbidden. Only administrators or the assigned teacher can mark attendance." },
+        { status: 403 }
+      );
+    }
+
+    const existingParsedNotes = parseScheduleAttendanceAndNotes(existing.notes);
+    const nextAttendanceStatus =
+      input.attendance_status !== undefined
+        ? input.attendance_status
+        : existingParsedNotes.attendance_status;
+    const nextCleanNotes =
+      input.notes !== undefined ? input.notes : existingParsedNotes.notes;
+    const nextMarkedAt =
+      input.attendance_status !== undefined
+        ? input.attendance_status
+          ? new Date().toISOString()
+          : null
+        : existingParsedNotes.attendance_marked_at;
+
+    // Fast path for marking attendance (Present / Absent)
+    if (isOnlyAttendanceUpdate) {
+      const encodedNotes = encodeScheduleAttendanceAndNotes(
+        nextAttendanceStatus,
+        nextCleanNotes,
+        nextMarkedAt
+      );
+
+      const { data: updatedRow, error: updateErr } = await admin
+        .from("schedules")
+        .update({
+          notes: encodedNotes,
+          updated_by: actor.id,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", id)
+        .select(SCHEDULE_DETAIL_SELECT)
+        .single();
+
+      if (updateErr) {
+        return NextResponse.json(
+          { error: translateDbConstraintError(updateErr) },
+          { status: 400 }
+        );
+      }
+
+      const schedule = normalizeScheduleRow(
+        updatedRow as Record<string, unknown>
+      ) as Record<string, unknown>;
+
+      await logAuditEvent({
+        userId: actor.id,
+        action: "MARK_ATTENDANCE",
+        tableName: "schedules",
+        recordId: id,
+        oldData: { attendance_status: existingParsedNotes.attendance_status },
+        newData: {
+          attendance_status: nextAttendanceStatus,
+          student_id: existing.student_id,
+          start_at: existing.start_at,
+        },
+      });
+
+      return NextResponse.json({ schedule });
+    }
     const nextTeacherId = input.teacher_id ?? existing.teacher_id;
     const nextStudentId = input.student_id ?? existing.student_id;
     const nextInstrumentId = input.instrument_id ?? existing.instrument_id;
@@ -143,12 +230,16 @@ export async function PATCH(
       start_at: nextStartAt,
       end_at: nextEndAt,
       status: nextStatus,
-      updated_by: adminProfile.id,
+      updated_by: actor.id,
       updated_at: new Date().toISOString(),
     };
 
-    if (input.notes !== undefined) {
-      updatePayload.notes = input.notes;
+    if (input.notes !== undefined || input.attendance_status !== undefined) {
+      updatePayload.notes = encodeScheduleAttendanceAndNotes(
+        nextAttendanceStatus,
+        nextCleanNotes,
+        nextMarkedAt
+      );
     }
     if (input.detach_from_series) {
       updatePayload.series_id = null;
@@ -198,7 +289,7 @@ export async function PATCH(
     });
 
     await logAuditEvent({
-      userId: adminProfile.id,
+      userId: actor.id,
       action: isCancelled ? "CANCEL_SCHEDULE" : "UPDATE_SCHEDULE",
       tableName: "schedules",
       recordId: id,
