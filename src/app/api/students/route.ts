@@ -80,6 +80,11 @@ export async function GET() {
       const absentCount = activeSchedules.filter(
         (sch) => sch.attendance_status === "absent"
       ).length;
+      const attendedSchedules = activeSchedules.filter(
+        (sch) =>
+          sch.attendance_status === "present" ||
+          sch.attendance_status === "absent"
+      );
 
       return {
         ...s,
@@ -88,10 +93,10 @@ export async function GET() {
         enrolled_instruments: Array.from(instMap.values()),
         assigned_teachers: Array.from(teacherMap.values()),
         upcoming_lessons_count: upcomingSchedules.length,
-        total_lessons_count: activeSchedules.length,
+        total_lessons_count: attendedSchedules.length,
         present_count: presentCount,
         absent_count: absentCount,
-        schedules: stuSchedules.slice(0, 250),
+        schedules: attendedSchedules.slice(0, 250),
       };
     });
 

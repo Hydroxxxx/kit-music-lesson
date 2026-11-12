@@ -193,7 +193,7 @@ export default function SettingsPage() {
         </form>
       </div>
 
-      {/* Version 1.1 & Patch Notes Card */}
+      {/* Version 1.2 & Patch Notes Card */}
       <div className="bg-white rounded-xl border border-zinc-200/80 overflow-hidden">
         <div className="px-5 py-4 border-b border-zinc-100 flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -203,12 +203,12 @@ export default function SettingsPage() {
                 System Version & Patch Release Notes
               </h2>
               <p className="text-xs text-zinc-500">
-                KitMusicLesson Scheduling System — Update Patch 1.1
+                KitMusicLesson Scheduling System — Update Patch 1.2
               </p>
             </div>
           </div>
           <span className="inline-flex items-center rounded-md bg-zinc-900 px-2.5 py-1 font-mono text-xs font-bold text-white">
-            Version 1.1
+            Version 1.2
           </span>
         </div>
 
@@ -216,40 +216,40 @@ export default function SettingsPage() {
           <div className="rounded-xl border border-zinc-200/80 bg-zinc-50/60 p-3.5 space-y-1">
             <div className="flex items-center gap-1.5 font-semibold text-zinc-900">
               <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
-              <span>1. Teacher Schedule, Student & Email Access</span>
+              <span>1. Pure Attendance-Only Student Report</span>
             </div>
             <p className="text-zinc-600 pl-5 leading-relaxed">
-              Teachers can create their own lesson schedules, edit/cancel their own lessons, manage students they teach, and update their own email address (Admins can also update any account email).
+              Future recurring schedules (e.g., 6 months ahead) are excluded from the Student Report until attendance (Present / Absent) has actually been marked.
             </p>
           </div>
 
           <div className="rounded-xl border border-zinc-200/80 bg-zinc-50/60 p-3.5 space-y-1">
             <div className="flex items-center gap-1.5 font-semibold text-zinc-900">
               <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
-              <span>2. Student Report View & Absence Reason Notes</span>
+              <span>2. Single-Week Schedule Move / Edit</span>
             </div>
             <p className="text-zinc-600 pl-5 leading-relaxed">
-              Removed the Attendance Record column from the Students table (accessible via the Student Report button) and added Attendance Notes / Reasons for Absence (e.g., <em>Sakit</em>, <em>Izin</em>).
+              Click any schedule on the calendar and choose <strong>Move / Edit This Week</strong> to move just that week&apos;s lesson without affecting the rest of a 6-month recurring series.
             </p>
           </div>
 
           <div className="rounded-xl border border-zinc-200/80 bg-zinc-50/60 p-3.5 space-y-1">
             <div className="flex items-center gap-1.5 font-semibold text-zinc-900">
               <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
-              <span>3. Streamlined Account Management Table</span>
+              <span>3. Multi-Scope Delete & Student Schedule Overhaul</span>
             </div>
             <p className="text-zinc-600 pl-5 leading-relaxed">
-              Removed the <em>Last Sign-In</em> column from the Account Management table for a cleaner layout.
+              Delete a single week, delete from this week onward in a series, or overhaul/delete all unattended schedules for a student while preserving past attended records.
             </p>
           </div>
 
           <div className="rounded-xl border border-zinc-200/80 bg-zinc-50/60 p-3.5 space-y-1">
             <div className="flex items-center gap-1.5 font-semibold text-zinc-900">
               <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
-              <span>4. Calendar Schedule Card Attributes</span>
+              <span>4. Full-Width Vertical Schedule Stacking</span>
             </div>
             <p className="text-zinc-600 pl-5 leading-relaxed">
-              Weekly Calendar schedule blocks now display <strong>Instrument - Teacher Name - Practice Room</strong>.
+              Same-hour schedules on the Weekly Calendar stack vertically at full width with clear time range badges.
             </p>
           </div>
         </div>

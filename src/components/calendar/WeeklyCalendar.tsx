@@ -15,7 +15,7 @@ import {
   FileText,
   Edit3,
   GitPullRequest,
-  Ban,
+  Trash2,
   CheckCircle2,
   XCircle,
   X,
@@ -152,8 +152,11 @@ export function WeeklyCalendar() {
   const [reqError, setReqError] = useState<string | null>(null);
   const [reqSubmitting, setReqSubmitting] = useState(false);
 
-  // Cancel Confirmation State
+  // Delete Confirmation State
   const [confirmCancelOpen, setConfirmCancelOpen] = useState(false);
+  const [deleteScope, setDeleteScope] = useState<
+    "single" | "series_future" | "student_all"
+  >("single");
   const [cancelling, setCancelling] = useState(false);
   const [markingAttendance, setMarkingAttendance] = useState(false);
   const [attendanceNoteDraft, setAttendanceNoteDraft] = useState("");
@@ -383,8 +386,9 @@ export function WeeklyCalendar() {
     setScheduleModalOpen(true);
   };
 
-  // Open Edit Schedule Modal
+  // Open Edit Schedule Modal (Single-Week Reschedule / Edit)
   const openEditModal = (sched: ScheduleWithDetails) => {
+    setSelectedScheduleId(null);
     setEditingSchedule(sched);
     setFormTeacherId(sched.teacher_id);
     setFormInstrumentId(sched.instrument_id);
@@ -444,8 +448,11 @@ export function WeeklyCalendar() {
           return;
         }
         setScheduleModalOpen(false);
-        setSelectedScheduleId(json.schedule?.id ?? null);
-        showToast("Schedule updated and synchronized.");
+        setSelectedScheduleId(null);
+        syncCalendarDate(formDate);
+        showToast(
+          "This week's lesson schedule updated. Other recurring weeks remain unchanged."
+        );
       } else {
         const res = await fetch("/api/schedules", {
           method: "POST",
@@ -586,22 +593,30 @@ export function WeeklyCalendar() {
     }
   };
 
-  // Cancel Schedule (Admin)
+  // Delete Schedule (Single Week, Following Series, or Overhaul Student Schedules)
   const handleConfirmCancelSchedule = async () => {
     if (!selectedSchedule) return;
     setCancelling(true);
     try {
-      const res = await fetch(`/api/schedules/${selectedSchedule.id}`, {
-        method: "DELETE",
-      });
+      const res = await fetch(
+        `/api/schedules/${selectedSchedule.id}?scope=${deleteScope}`,
+        {
+          method: "DELETE",
+        }
+      );
       const json = await res.json();
       if (!res.ok) {
-        showToast(json.error || "Failed to cancel schedule");
+        showToast(json.error || "Failed to delete schedule");
         return;
       }
       setConfirmCancelOpen(false);
       setSelectedScheduleId(null);
-      showToast("Schedule cancelled.");
+      const deletedCount = Number(json.deletedCount || 1);
+      showToast(
+        deletedCount > 1
+          ? `Deleted ${deletedCount} scheduled lessons.`
+          : "Lesson schedule deleted."
+      );
       await fetchWeekSchedules(false);
       await refreshNotifications();
       await broadcastRealtimeSync("schedule_changed");
@@ -1507,14 +1522,14 @@ export function WeeklyCalendar() {
               selectedSchedule.teacher_id === profile.id ||
               selectedSchedule.created_by === profile.id ? (
                 <>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <button
                       type="button"
                       onClick={() => openEditModal(selectedSchedule)}
                       className="inline-flex items-center gap-1.5 rounded-lg bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-zinc-800 cursor-pointer"
                     >
                       <Edit3 className="h-3.5 w-3.5" />
-                      Edit
+                      Move / Edit This Week
                     </button>
 
                     {isAdmin && selectedSchedule.status === "pending" && (
@@ -1542,16 +1557,17 @@ export function WeeklyCalendar() {
                     )}
                   </div>
 
-                  {selectedSchedule.status !== "cancelled" && (
-                    <button
-                      type="button"
-                      onClick={() => setConfirmCancelOpen(true)}
-                      className="inline-flex items-center gap-1 rounded-lg border border-red-200 bg-red-50/60 px-2.5 py-1.5 text-xs font-medium text-red-600 hover:bg-red-100/70 cursor-pointer"
-                    >
-                      <Ban className="h-3.5 w-3.5" />
-                      Cancel
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDeleteScope("single");
+                      setConfirmCancelOpen(true);
+                    }}
+                    className="inline-flex items-center gap-1 rounded-lg border border-red-200 bg-red-50/60 px-2.5 py-1.5 text-xs font-medium text-red-600 hover:bg-red-100/70 cursor-pointer"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    Delete
+                  </button>
                 </>
               ) : (
                 <div className="w-full flex items-center justify-between gap-2">
@@ -1583,11 +1599,13 @@ export function WeeklyCalendar() {
             <div className="px-5 py-4 border-b border-zinc-100 flex items-center justify-between">
               <div>
                 <h3 className="text-sm font-semibold text-zinc-900">
-                  {editingSchedule ? "Edit Lesson Schedule" : "Create New Schedule"}
+                  {editingSchedule
+                    ? "Move / Edit This Week's Lesson"
+                    : "Create New Schedule"}
                 </h3>
                 <p className="text-xs text-zinc-500">
                   {editingSchedule
-                    ? "Modifying this occurrence will not alter other dates in a recurring series."
+                    ? "Changes made here apply ONLY to this specific week. Other recurring weeks stay untouched."
                     : "Schedule a single lesson or a weekly recurring lesson series."}
                 </p>
               </div>
@@ -1601,6 +1619,26 @@ export function WeeklyCalendar() {
             </div>
 
             <form onSubmit={handleScheduleSubmit} className="p-5 space-y-4">
+              {editingSchedule && (
+                <div className="flex items-start gap-2.5 rounded-xl bg-blue-50/80 border border-blue-200/80 p-3 text-xs text-blue-900">
+                  <Repeat className="h-4 w-4 text-blue-600 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-semibold">
+                      Single-Week Reschedule (This Week Only)
+                    </p>
+                    <p className="text-[11px] text-blue-800 mt-0.5 leading-relaxed">
+                      Moving the date, time, or room below will only update the
+                      lesson originally on{" "}
+                      <strong>
+                        {formatJakartaDate(editingSchedule.start_at)}
+                      </strong>
+                      . All other weeks in your recurring schedule remain
+                      unchanged.
+                    </p>
+                  </div>
+                </div>
+              )}
+
               {formError && (
                 <div className="flex items-start gap-2 rounded-xl bg-red-50 border border-red-200 p-3 text-xs text-red-700">
                   <AlertCircle className="h-4 w-4 text-red-600 shrink-0 mt-0.5" />
@@ -2062,35 +2100,123 @@ export function WeeklyCalendar() {
       )}
 
       {/* =========================================================
-          4. DESTRUCTIVE ACTION CONFIRMATION DIALOG (CANCEL LESSON)
+          4. DELETE SCHEDULE DIALOG (SINGLE WEEK / SERIES / OVERHAUL STUDENT)
           ========================================================= */}
       {confirmCancelOpen && selectedSchedule && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-[1px] p-4">
-          <div className="bg-white rounded-2xl border border-zinc-200 shadow-xl w-full max-w-sm p-5 space-y-4">
-            <div>
-              <h3 className="text-sm font-semibold text-zinc-900">
-                Cancel Scheduled Lesson?
-              </h3>
-              <p className="mt-1 text-xs text-zinc-500">
-                Are you sure you want to cancel the{" "}
-                <span className="font-medium text-zinc-800">
-                  {selectedSchedule.instrument?.name}
-                </span>{" "}
-                lesson with{" "}
-                <span className="font-medium text-zinc-800">
-                  {selectedSchedule.student?.full_name}
-                </span>{" "}
-                on {formatJakartaDate(selectedSchedule.start_at)}? The assigned
-                teacher will be notified immediately.
-              </p>
+          <div className="bg-white rounded-2xl border border-zinc-200 shadow-xl w-full max-w-md p-5 space-y-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-semibold text-zinc-900">
+                  Delete Lesson Schedule
+                </h3>
+                <p className="mt-1 text-xs text-zinc-500">
+                  Choose which schedule(s) to delete for{" "}
+                  <span className="font-semibold text-zinc-800">
+                    {selectedSchedule.student?.full_name}
+                  </span>{" "}
+                  ({selectedSchedule.instrument?.name}):
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setConfirmCancelOpen(false)}
+                className="h-7 w-7 rounded-lg flex items-center justify-center text-zinc-400 hover:text-zinc-700"
+              >
+                <X className="h-4 w-4" />
+              </button>
             </div>
-            <div className="flex items-center justify-end gap-2">
+
+            <div className="space-y-2 text-xs">
+              <label
+                className={`flex items-start gap-2.5 rounded-xl border p-3 cursor-pointer transition-colors ${
+                  deleteScope === "single"
+                    ? "border-red-300 bg-red-50/50"
+                    : "border-zinc-200 bg-white hover:bg-zinc-50"
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="deleteScope"
+                  checked={deleteScope === "single"}
+                  onChange={() => setDeleteScope("single")}
+                  className="mt-0.5 text-red-600 focus:ring-red-600"
+                />
+                <div>
+                  <p className="font-semibold text-zinc-900">
+                    Delete This Week Only ({formatJakartaDate(selectedSchedule.start_at)})
+                  </p>
+                  <p className="text-[11px] text-zinc-500 mt-0.5 leading-relaxed">
+                    Removes only this single lesson on{" "}
+                    {formatJakartaDate(selectedSchedule.start_at)}. All other
+                    weekly schedules stay untouched.
+                  </p>
+                </div>
+              </label>
+
+              <label
+                className={`flex items-start gap-2.5 rounded-xl border p-3 cursor-pointer transition-colors ${
+                  deleteScope === "series_future"
+                    ? "border-red-300 bg-red-50/50"
+                    : "border-zinc-200 bg-white hover:bg-zinc-50"
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="deleteScope"
+                  checked={deleteScope === "series_future"}
+                  onChange={() => setDeleteScope("series_future")}
+                  className="mt-0.5 text-red-600 focus:ring-red-600"
+                />
+                <div>
+                  <p className="font-semibold text-zinc-900">
+                    Delete This & Following Weeks in Series
+                  </p>
+                  <p className="text-[11px] text-zinc-500 mt-0.5 leading-relaxed">
+                    Deletes this lesson and all upcoming future lessons in this
+                    series from {formatJakartaDate(selectedSchedule.start_at)}{" "}
+                    onward. Past lessons with recorded attendance remain safe in
+                    the report.
+                  </p>
+                </div>
+              </label>
+
+              <label
+                className={`flex items-start gap-2.5 rounded-xl border p-3 cursor-pointer transition-colors ${
+                  deleteScope === "student_all"
+                    ? "border-red-300 bg-red-50/50"
+                    : "border-zinc-200 bg-white hover:bg-zinc-50"
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="deleteScope"
+                  checked={deleteScope === "student_all"}
+                  onChange={() => setDeleteScope("student_all")}
+                  className="mt-0.5 text-red-600 focus:ring-red-600"
+                />
+                <div>
+                  <p className="font-semibold text-zinc-900">
+                    Overhaul / Delete All Unattended Schedules for{" "}
+                    {selectedSchedule.student?.full_name}
+                  </p>
+                  <p className="text-[11px] text-zinc-500 mt-0.5 leading-relaxed">
+                    Clears all un-attended future schedules for{" "}
+                    <strong>{selectedSchedule.student?.full_name}</strong> so
+                    you can set up a brand-new recurring schedule. Past lessons
+                    with recorded attendance stay safe in the student report.
+                  </p>
+                </div>
+              </label>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-1">
               <button
                 type="button"
                 onClick={() => setConfirmCancelOpen(false)}
                 className="rounded-lg border border-zinc-200 bg-white px-3.5 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 cursor-pointer"
               >
-                Keep Lesson
+                Cancel
               </button>
               <button
                 type="button"
@@ -2098,8 +2224,16 @@ export function WeeklyCalendar() {
                 onClick={handleConfirmCancelSchedule}
                 className="inline-flex items-center gap-1.5 rounded-lg bg-red-600 px-3.5 py-1.5 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-50 cursor-pointer"
               >
-                {cancelling && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                Yes, Cancel Lesson
+                {cancelling ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Trash2 className="h-3.5 w-3.5" />
+                )}
+                {deleteScope === "single"
+                  ? "Delete This Week"
+                  : deleteScope === "series_future"
+                  ? "Delete Following Series"
+                  : "Delete All Unattended"}
               </button>
             </div>
           </div>

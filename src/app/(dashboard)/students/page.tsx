@@ -87,7 +87,7 @@ export default function StudentsPage() {
   const [historyStudentId, setHistoryStudentId] = useState<string | null>(null);
   const [reportMonthFilter, setReportMonthFilter] = useState<string>("all");
   const [reportAttendanceFilter, setReportAttendanceFilter] = useState<
-    "all" | "present" | "absent" | "unmarked"
+    "all" | "present" | "absent"
   >("all");
   const [markingScheduleId, setMarkingScheduleId] = useState<string | null>(
     null
@@ -259,21 +259,21 @@ export default function StudentsPage() {
     }
   };
 
-  // Monthly grouped report data for selected student
+  // Monthly grouped report data for selected student (ONLY lessons where attendance has been recorded)
   const studentReportData = useMemo(() => {
     if (!historyStudent) return null;
-    const activeSchedules = (historyStudent.schedules || []).filter(
-      (sch) => sch.status !== "cancelled"
+    const recordedSchedules = (historyStudent.schedules || []).filter(
+      (sch) =>
+        sch.status !== "cancelled" &&
+        (sch.attendance_status === "present" ||
+          sch.attendance_status === "absent")
     );
 
-    const presentTotal = activeSchedules.filter(
+    const presentTotal = recordedSchedules.filter(
       (sch) => sch.attendance_status === "present"
     ).length;
-    const absentTotal = activeSchedules.filter(
+    const absentTotal = recordedSchedules.filter(
       (sch) => sch.attendance_status === "absent"
-    ).length;
-    const unmarkedTotal = activeSchedules.filter(
-      (sch) => !sch.attendance_status
     ).length;
     const markedTotal = presentTotal + absentTotal;
     const attendanceRate =
@@ -281,7 +281,7 @@ export default function StudentsPage() {
 
     // Collect available months (YYYY-MM descending)
     const monthSet = new Set<string>();
-    for (const sch of activeSchedules) {
+    for (const sch of recordedSchedules) {
       monthSet.add(getJakartaMonthKey(sch.start_at));
     }
     const availableMonths = Array.from(monthSet).sort((a, b) =>
@@ -289,7 +289,7 @@ export default function StudentsPage() {
     );
 
     // Filter schedules by selected month & attendance status
-    const filtered = activeSchedules.filter((sch) => {
+    const filtered = recordedSchedules.filter((sch) => {
       if (
         reportMonthFilter !== "all" &&
         getJakartaMonthKey(sch.start_at) !== reportMonthFilter
@@ -308,9 +308,6 @@ export default function StudentsPage() {
       ) {
         return false;
       }
-      if (reportAttendanceFilter === "unmarked" && sch.attendance_status) {
-        return false;
-      }
       return true;
     });
 
@@ -326,8 +323,8 @@ export default function StudentsPage() {
     const monthlyGroups = Array.from(groupsMap.entries())
       .sort((a, b) => b[0].localeCompare(a[0]))
       .map(([monthKey, items]) => {
-        // Also compute full-month totals from activeSchedules in that month
-        const allInMonth = activeSchedules.filter(
+        // Also compute full-month totals from recordedSchedules in that month
+        const allInMonth = recordedSchedules.filter(
           (s) => getJakartaMonthKey(s.start_at) === monthKey
         );
         const presentInMonth = allInMonth.filter(
@@ -362,8 +359,7 @@ export default function StudentsPage() {
     return {
       presentTotal,
       absentTotal,
-      unmarkedTotal,
-      totalActive: activeSchedules.length,
+      totalActive: recordedSchedules.length,
       attendanceRate,
       availableMonths,
       monthlyGroups,
@@ -706,7 +702,7 @@ export default function StudentsPage() {
 
                 <div className="rounded-xl bg-white border border-zinc-200/80 p-3">
                   <p className="text-[11px] font-medium text-zinc-500">
-                    Total Scheduled
+                    Total Recorded
                   </p>
                   <p className="mt-1 text-lg font-bold text-zinc-900">
                     {studentReportData.totalActive}{" "}
@@ -726,7 +722,7 @@ export default function StudentsPage() {
                     onChange={(e) => setReportMonthFilter(e.target.value)}
                     className="rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5 text-xs font-medium text-zinc-800"
                   >
-                    <option value="all">All Months (Full History)</option>
+                    <option value="all">All Months (Recorded History)</option>
                     {studentReportData.availableMonths.map((mKey) => (
                       <option key={mKey} value={mKey}>
                         {formatMonthKeyLabel(mKey)}
@@ -738,10 +734,9 @@ export default function StudentsPage() {
                 <div className="flex flex-wrap items-center gap-1">
                   {(
                     [
-                      { key: "all", label: "All" },
+                      { key: "all", label: "All Recorded" },
                       { key: "present", label: "Present" },
                       { key: "absent", label: "Absent" },
-                      { key: "unmarked", label: "Unmarked" },
                     ] as const
                   ).map((tab) => (
                     <button
@@ -764,8 +759,14 @@ export default function StudentsPage() {
             {/* Monthly Grouped Attendance History */}
             <div className="flex-1 overflow-y-auto p-5 space-y-4">
               {studentReportData.monthlyGroups.length === 0 ? (
-                <div className="py-12 text-center text-xs text-zinc-400">
-                  No lesson records found for the selected filter.
+                <div className="py-12 text-center text-xs text-zinc-400 space-y-1">
+                  <p className="font-medium text-zinc-600">
+                    No recorded attendance sessions yet.
+                  </p>
+                  <p>
+                    Future scheduled lessons will only appear here after
+                    attendance (Present / Absent) has been marked.
+                  </p>
                 </div>
               ) : (
                 studentReportData.monthlyGroups.map((group) => (

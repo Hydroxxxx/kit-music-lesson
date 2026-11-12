@@ -343,12 +343,14 @@ export async function PATCH(
 }
 
 export async function DELETE(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ id: string }> }
 ) {
   try {
     const actor = await requireAuth();
     const { id } = await context.params;
+    const { searchParams } = new URL(request.url);
+    const scope = searchParams.get("scope") || "single"; // "single" | "series_future" | "student_all"
     const admin = createAdminClient();
 
     const { data: existing } = await admin
@@ -364,26 +366,97 @@ export async function DELETE(
       );
     }
 
+    const isAdmin = actor.role === "admin";
     if (
-      actor.role !== "admin" &&
+      !isAdmin &&
       existing.teacher_id !== actor.id &&
       existing.created_by !== actor.id
     ) {
       return NextResponse.json(
-        { error: "Forbidden. You can only cancel your own lessons." },
+        { error: "Forbidden. You can only delete your own lessons." },
         { status: 403 }
       );
     }
 
-    // Soft-cancel or delete if no requests reference it
+    let targetIds: string[] = [id];
+
+    if (scope === "series_future") {
+      // Find all occurrences in this series (or matching student+instrument+teacher) from this date onward
+      let query = admin
+        .from("schedules")
+        .select("id, notes, teacher_id, created_by")
+        .gte("start_at", existing.start_at);
+
+      if (existing.series_id) {
+        query = query.eq("series_id", existing.series_id);
+      } else {
+        query = query
+          .eq("student_id", existing.student_id)
+          .eq("instrument_id", existing.instrument_id)
+          .eq("teacher_id", existing.teacher_id);
+      }
+
+      const { data: candidates } = await query;
+      if (candidates && candidates.length > 0) {
+        targetIds = candidates
+          .filter((row) => {
+            if (row.id === id) return true;
+            if (
+              !isAdmin &&
+              row.teacher_id !== actor.id &&
+              row.created_by !== actor.id
+            ) {
+              return false;
+            }
+            const parsed = parseScheduleAttendanceAndNotes(
+              row.notes as string | null
+            );
+            // Keep lessons where attendance was already recorded so student report history stays safe
+            return !parsed.attendance_status;
+          })
+          .map((row) => row.id as string);
+      }
+    } else if (scope === "student_all") {
+      // Overhaul student schedule: find all unattended schedules for this student
+      let query = admin
+        .from("schedules")
+        .select("id, notes, teacher_id, created_by")
+        .eq("student_id", existing.student_id);
+
+      if (!isAdmin) {
+        query = query.eq("teacher_id", actor.id);
+      }
+
+      const { data: candidates } = await query;
+      if (candidates && candidates.length > 0) {
+        targetIds = candidates
+          .filter((row) => {
+            if (row.id === id) return true;
+            const parsed = parseScheduleAttendanceAndNotes(
+              row.notes as string | null
+            );
+            // Only delete schedules that have NOT been marked Present/Absent yet
+            return !parsed.attendance_status;
+          })
+          .map((row) => row.id as string);
+      }
+    }
+
+    if (targetIds.length === 0) {
+      targetIds = [id];
+    }
+
+    // Remove any dependent schedule change requests first to avoid FK constraint errors
+    await admin
+      .from("schedule_requests")
+      .delete()
+      .in("schedule_id", targetIds);
+
+    // Permanently delete the target schedule rows
     const { error: delErr } = await admin
       .from("schedules")
-      .update({
-        status: "cancelled",
-        updated_by: actor.id,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", id);
+      .delete()
+      .in("id", targetIds);
 
     if (delErr) {
       return NextResponse.json({ error: delErr.message }, { status: 400 });
@@ -391,30 +464,51 @@ export async function DELETE(
 
     await createNotification({
       userId: existing.teacher_id,
-      title: "Lesson Cancelled",
-      message: `A scheduled lesson on ${formatJakartaDate(
-        existing.start_at
-      )} (${formatJakartaTimeRange(
-        existing.start_at,
-        existing.end_at
-      )}) was cancelled.`,
+      title:
+        targetIds.length > 1
+          ? `${targetIds.length} Scheduled Lessons Deleted`
+          : "Lesson Schedule Deleted",
+      message:
+        targetIds.length > 1
+          ? `${targetIds.length} scheduled lessons starting from ${formatJakartaDate(
+              existing.start_at
+            )} were deleted.`
+          : `A scheduled lesson on ${formatJakartaDate(
+              existing.start_at
+            )} (${formatJakartaTimeRange(
+              existing.start_at,
+              existing.end_at
+            )}) was deleted.`,
     });
 
     await logAuditEvent({
       userId: actor.id,
-      action: "CANCEL_SCHEDULE",
+      action:
+        scope === "student_all"
+          ? "DELETE_STUDENT_SCHEDULES"
+          : scope === "series_future"
+          ? "DELETE_SERIES_SCHEDULES"
+          : "DELETE_SCHEDULE",
       tableName: "schedules",
       recordId: id,
-      oldData: existing,
+      oldData: {
+        scope,
+        deleted_count: targetIds.length,
+        sample_schedule: existing,
+      },
     });
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({
+      success: true,
+      deletedCount: targetIds.length,
+      scope,
+    });
   } catch (err) {
     if (err instanceof AuthError) {
       return NextResponse.json({ error: err.message }, { status: err.status });
     }
     return NextResponse.json(
-      { error: "Failed to cancel schedule" },
+      { error: "Failed to delete schedule" },
       { status: 500 }
     );
   }
